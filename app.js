@@ -298,6 +298,7 @@
     cloudEmailInput: document.getElementById('cloudEmailInput'),
     cloudPasswordInput: document.getElementById('cloudPasswordInput'),
     chkUploadLocalTasks: document.getElementById('chkUploadLocalTasks'),
+    btnGoogleSignIn: document.getElementById('btnGoogleSignIn'),
     btnSubmitAuth: document.getElementById('btnSubmitAuth'),
     authErrorMsg: document.getElementById('authErrorMsg'),
     firebaseConfigTextarea: document.getElementById('firebaseConfigTextarea'),
@@ -449,7 +450,7 @@
       if (el.viewLoggedIn) el.viewLoggedIn.style.display = 'block';
       if (el.viewLoggedOut) el.viewLoggedOut.style.display = 'none';
 
-      let displayName = user.email;
+      let displayName = user.displayName || user.email;
       if (!displayName && user.isAnonymous) {
         displayName = 'ผู้ใช้รหัส PIN ส่วนตัว';
       } else if (displayName && displayName.startsWith('pin_') && displayName.endsWith('@worktracker.internal')) {
@@ -460,6 +461,14 @@
       }
 
       if (el.userEmailDisplay) el.userEmailDisplay.textContent = displayName;
+      const avatarEl = document.getElementById('userAvatarIcon');
+      if (avatarEl) {
+        if (user.photoURL) {
+          avatarEl.innerHTML = `<img src="${user.photoURL}" alt="" style="width: 32px; height: 32px; border-radius: 50%; vertical-align: middle;">`;
+        } else {
+          avatarEl.textContent = '👤';
+        }
+      }
       if (el.cloudStatusSubtitle) {
         el.cloudStatusSubtitle.textContent = `เชื่อมต่อบัญชี: ${displayName}`;
       }
@@ -611,6 +620,40 @@
     }
 
     if (el.authErrorMsg) el.authErrorMsg.style.display = 'none';
+  }
+
+  function handleGoogleSignIn() {
+    if (!state.firebaseAuth) {
+      showAuthError('ยังไม่ได้ตั้งค่า Firebase! กรุณาไปที่แท็บ "⚙️ ตั้งค่า Firebase" ก่อน');
+      return;
+    }
+
+    const uploadLocal = el.chkUploadLocalTasks ? el.chkUploadLocalTasks.checked : true;
+    if (el.authErrorMsg) el.authErrorMsg.style.display = 'none';
+
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+
+    state.firebaseAuth.signInWithPopup(provider)
+      .then((result) => {
+        if (uploadLocal) {
+          pushToCloud(true);
+        }
+        const name = result.user.displayName || result.user.email;
+        showToast(`🎉 ยินดีต้อนรับ ${name}! เชื่อมต่อ Cloud สำเร็จ`);
+      })
+      .catch((err) => {
+        console.error('Google Sign-in error:', err);
+        let msg = err.message || 'เกิดข้อผิดพลาดในการลงชื่อเข้าใช้ด้วย Google';
+        if (err.code === 'auth/popup-closed-by-user') {
+          msg = 'หน้าต่างเข้าสู่ระบบถูกปิดก่อนเสร็จสิ้น';
+        } else if (err.code === 'auth/unauthorized-domain') {
+          msg = 'โดเมนนี้ยังไม่ได้รับอนุญาตใน Firebase Console > Authentication > Settings > Authorized domains';
+        } else if (err.code === 'auth/operation-not-supported-in-this-environment') {
+          msg = '💡 Google Login ต้องรันผ่านเว็บ (เช่น GitHub Pages หรือ http://) ไม่สามารถรันบน file:/// ในเครื่องได้โดยตรง หากทดสอบในเครื่องสามารถใช้ "รหัส PIN ด่วน" แทนได้ครับ';
+        }
+        showAuthError(msg);
+      });
   }
 
   function handleAuthSubmit() {
@@ -2131,6 +2174,7 @@
     if (el.btnModeLogin) el.btnModeLogin.addEventListener('click', () => setAuthMode('login'));
     if (el.btnModeRegister) el.btnModeRegister.addEventListener('click', () => setAuthMode('register'));
 
+    if (el.btnGoogleSignIn) el.btnGoogleSignIn.addEventListener('click', handleGoogleSignIn);
     if (el.btnSubmitAuth) el.btnSubmitAuth.addEventListener('click', handleAuthSubmit);
     if (el.btnForceSyncNow) {
       el.btnForceSyncNow.addEventListener('click', () => {
