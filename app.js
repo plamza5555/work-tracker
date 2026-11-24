@@ -216,26 +216,8 @@
   }
 
   function getInitialDemoTasks() {
-    const demo = {};
-    const nov24Key = '2026-11-24';
-    demo[nov24Key] = [
-      { id: 'task-1', title: 'กีฬาสีโรงเรียนขัวแคร์', desc: '', done: false, tags: ['lbl-7'] },
-      { id: 'task-2', title: 'ผ้าป่ากฐินโรงพยาบาลเทิง', desc: '', done: false, tags: ['lbl-3'] },
-      { id: 'task-3', title: 'แข่งขันฟุตบอล ภูมิภูสลอง', desc: '', done: false, tags: ['lbl-3'] },
-      { id: 'task-4', title: 'โรงเรียนวัดพระเกิด ป้ายประชาสัมพันธ์', desc: '', done: false, tags: ['lbl-3'] },
-      { id: 'task-5', title: 'ศูนย์เครือข่าย การศึกษา แม่ลอยศรีดอนไชยขอสนับสนุน', desc: '', done: false, tags: ['lbl-3'] },
-      { id: 'task-6', title: 'ป้ายป้องกันยุงลาย ป่าตึง', desc: '', done: false, tags: ['lbl-3'] }
-    ];
-
-    const today = new Date();
-    const todayKey = formatDateKey(today);
-    if (todayKey !== nov24Key) {
-      demo[todayKey] = [
-        { id: 'demo-today-1', title: 'ตรวจสอบแบบป้ายโฆษณา', desc: '', done: false, tags: ['lbl-6'] },
-        { id: 'demo-today-2', title: 'ติดต่อสอบถามร้านทำป้ายอะคริลิค', desc: '', done: true, tags: ['lbl-1'] }
-      ];
-    }
-    return demo;
+    // ตารางงานเริ่มต้นว่างเปล่า พร้อมให้ผู้ใช้งานบันทึกงานใหม่
+    return {};
   }
 
   // --- Format Date Helpers ---
@@ -481,9 +463,9 @@
     }
 
     if (cfg) {
-      // รับประกันว่า databaseURL ต้องชี้ไปที่เซิร์ฟเวอร์สิงคโปร์ของโปรเจกต์นี้เสมอ แม้ใน config จะไม่ได้ระบุมา
-      if (!cfg.databaseURL || cfg.databaseURL.indexOf('firebaseio.com') !== -1) {
-        cfg.databaseURL = 'https://my-work-tracker-ff365-default-rtdb.asia-southeast1.firebasedatabase.app';
+      // fallback databaseURL หากไม่ได้ระบุมาโดยตรง แต่มี projectId
+      if (!cfg.databaseURL && cfg.projectId) {
+        cfg.databaseURL = `https://${cfg.projectId}-default-rtdb.asia-southeast1.firebasedatabase.app`;
       }
     }
 
@@ -527,7 +509,7 @@
       }).catch((err) => {
         console.error('Redirect auth error:', err);
         if (err.code === 'auth/unauthorized-domain') {
-          showAuthError(`⚠️ โดเมนยังไม่ได้รับอนุญาต: กรุณาเพิ่ม "plamza5555.github.io" ใน Firebase Console > Authentication > Settings > Authorized domains`);
+          showAuthError(`⚠️ โดเมนยังไม่ได้รับอนุญาต: กรุณาเพิ่ม "${window.location.hostname || 'โดเมนของคุณ'}" ใน Firebase Console > Authentication > Settings > Authorized domains`);
         }
       });
 
@@ -818,7 +800,7 @@
         console.error('Google Sign-in error:', err);
         let msg = err.message || 'เกิดข้อผิดพลาดในการลงชื่อเข้าใช้ด้วย Google';
         if (err.code === 'auth/unauthorized-domain') {
-          msg = `⚠️ โดเมนยังไม่ได้รับอนุญาต: กรุณาเพิ่ม "plamza5555.github.io" ใน Firebase Console > Authentication > Settings > Authorized domains`;
+          msg = `⚠️ โดเมนยังไม่ได้รับอนุญาต: กรุณาเพิ่ม "${window.location.hostname || 'โดเมนของคุณ'}" ใน Firebase Console > Authentication > Settings > Authorized domains`;
         } else if (err.code === 'auth/popup-blocked') {
           // Fallback to redirect
           state.firebaseAuth.signInWithRedirect(provider);

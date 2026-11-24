@@ -1,17 +1,20 @@
 // ============================================================
-// Firebase Configuration (ฝังในโค้ดโดยตรง ทุกเครื่องและมือถือพร้อมใช้ทันที!)
+// Firebase & Google Drive Configuration
 // ============================================================
+// ใส่การตั้งค่า Firebase ที่นี่หากต้องการเชื่อมต่อระบบ Cloud สำหรับทุกคนที่เปิดเว็บนี้
+// หรือปล่อยว่างไว้เป็น "" เพื่อให้เป็นระบบออฟไลน์ส่วนตัว (บันทึกใน LocalStorage)
+// และผู้ใช้งานสามารถนำ Config มากรอกเองในหน้าเว็บ (แท็บตั้งค่า Firebase) ได้อย่างปลอดภัย
+
 window.FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAyf9b-L7vEe97b3ayaHtvGyL_i_Tj8fIw",
-  authDomain: "my-work-tracker-ff365.firebaseapp.com",
-  databaseURL: "https://my-work-tracker-ff365-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "my-work-tracker-ff365",
-  storageBucket: "my-work-tracker-ff365.firebasestorage.app",
-  messagingSenderId: "616174480095",
-  appId: "1:616174480095:web:d8995d44a00412133e176a",
-  measurementId: "G-MC2748MLK2"
+  apiKey: "",
+  authDomain: "",
+  databaseURL: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: "",
+  measurementId: ""
 };
 
-// โฟลเดอร์ Google Drive สำหรับจัดเก็บไฟล์เอกสารและรูปภาพ
-window.GOOGLE_DRIVE_FOLDER_ID = "1xF51wwGdvrCjMzzYC3CR84xMr5VZQC9K";
-
+// โฟลเดอร์ Google Drive สำหรับจัดเก็บไฟล์เอกสารและรูปภาพ (ใส่ Folder ID หรือปล่อยว่างไว้)
+window.GOOGLE_DRIVE_FOLDER_ID = "";
