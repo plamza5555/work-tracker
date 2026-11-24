@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Work Calendar & Task Tracker - ระบบบันทึกงานประจำวัน</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="theme-dark">
+  <!-- Top App Navigation -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="app-logo">
+        <span class="logo-icon">📅</span>
+        <div class="logo-text">
+          <h1>Work Tracker</h1>
+          <span class="subtitle">บันทึกงานรายวัน & จัดการ Tags สไตล์ Trello</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center Month Controls -->
+    <div class="calendar-controls">
+      <button id="btnPrevMonth" class="btn btn-icon" title="เดือนก่อนหน้า">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+      </button>
+      <div class="current-month-display">
+        <span id="currentMonthYear">พฤศจิกายน 2026</span>
+      </div>
+      <button id="btnNextMonth" class="btn btn-icon" title="เดือนถัดไป">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+      </button>
+      <button id="btnToday" class="btn btn-secondary">วันนี้</button>
+    </div>
+
+    <!-- Header Actions -->
+    <div class="header-right">
+      <div class="filter-box">
+        <select id="tagFilterSelect" class="form-select" title="กรองตาม Tag">
+          <option value="all">🏷️ ทุก Tags</option>
+        </select>
+      </div>
+
+      <button id="btnManageLabels" class="btn btn-outline" title="จัดการป้ายกำกับทั้งหมด">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
+        <span>จัดการ Tags</span>
+      </button>
+
+      <button id="btnBackup" class="btn btn-icon" title="สำรอง / กู้คืนข้อมูล (Export/Import)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+      </button>
+
+      <button id="btnThemeToggle" class="btn btn-icon" title="สลับโหมด มืด/สว่าง">
+        <span id="themeIcon">☀️</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Quick Summary Bar -->
+  <section class="stats-bar">
+    <div class="stat-item">
+      <span class="stat-label">งานทั้งหมดในเดือนนี้:</span>
+      <span id="statMonthTotal" class="stat-value">0</span>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+      <span class="stat-label">เสร็จแล้ว:</span>
+      <span id="statMonthDone" class="stat-value text-success">0</span>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+      <span class="stat-label">คงเหลือ:</span>
+      <span id="statMonthPending" class="stat-value text-warning">0</span>
+    </div>
+    <div class="stat-progress-container">
+      <div class="progress-bar-bg">
+        <div id="statProgressBar" class="progress-bar-fill" style="width: 0%"></div>
+      </div>
+      <span id="statProgressPercent" class="stat-percent">0%</span>
+    </div>
+  </section>
+
+  <!-- Main Calendar Container -->
+  <main class="calendar-container">
+    <!-- Days of Week Header -->
+    <div class="weekdays-grid">
+      <div class="weekday weekend">อา. (Sun)</div>
+      <div class="weekday">จ. (Mon)</div>
+      <div class="weekday">อ. (Tue)</div>
+      <div class="weekday">พ. (Wed)</div>
+      <div class="weekday">พฤ. (Thu)</div>
+      <div class="weekday">ศ. (Fri)</div>
+      <div class="weekday weekend">ส. (Sat)</div>
+    </div>
+
+    <!-- Calendar Month Grid -->
+    <div id="calendarGrid" class="calendar-grid">
+      <!-- Days populated dynamically by JS -->
+    </div>
+  </main>
+
+  <!-- ==================== MODALS ==================== -->
+
+  <!-- 1. Day Detail Modal -->
+  <div id="dayModal" class="modal-backdrop">
+    <div class="modal-box modal-day-view">
+      <div class="modal-header">
+        <div class="day-modal-title">
+          <span class="calendar-icon">📅</span>
+          <div>
+            <h2 id="modalDateTitle">วันอังคารที่ 24 พฤศจิกายน 2026</h2>
+            <p id="modalDateSubtitle" class="modal-subtitle">0 งาน (เสร็จ 0)</p>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button type="button" id="btnCopyDayToTomorrow" class="btn btn-sm btn-outline" title="คัดลอกงานทั้งหมดของวันนี้ไปทำต่อในวันพรุ่งนี้">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+            <span>ทำต่อวันพรุ่งนี้</span>
+          </button>
+          <button class="modal-close-btn" id="btnCloseDayModal">&times;</button>
+        </div>
+      </div>
+
+      <div class="modal-body day-modal-grid">
+        <!-- Left Sidebar: Compact Add Task Form & Day Stats -->
+        <div class="day-modal-sidebar">
+          <div class="card add-task-card">
+            <h3 class="card-title">+ เพิ่มงานสำหรับวันนี้</h3>
+            <form id="addTaskForm" class="add-task-form">
+              <div class="form-group">
+                <input type="text" id="taskTitleInput" class="form-input" placeholder="ระบุชื่องานที่ทำ... (เช่น สั่งป้ายร้านกาแฟ)" required autocomplete="off">
+              </div>
+
+              <div class="form-group">
+                <textarea id="taskDescInput" class="form-textarea" placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)..." rows="2"></textarea>
+              </div>
+
+              <div class="form-row-actions">
+                <div class="selected-tags-wrapper">
+                  <button type="button" id="btnOpenNewTaskLabels" class="btn btn-sm btn-outline">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path></svg>
+                    <span>เลือก Tags</span>
+                  </button>
+                  <div id="newTaskSelectedTagsPills" class="tags-badge-list">
+                    <!-- Tag pills shown here -->
+                  </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-sm btn-submit-task">
+                  <span>+ บันทึกงาน</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Day Progress & Quick Filters -->
+          <div class="card day-stats-card">
+            <div class="day-stats-header">
+              <span class="card-subtitle">ความคืบหน้าวันนี้</span>
+              <span id="dayProgressPercent" class="stat-percent text-success">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div id="dayProgressBar" class="progress-bar-fill" style="width: 0%"></div>
+            </div>
+            <div class="tasks-quick-filters">
+              <button class="btn-filter-tab active" data-filter="all">ทั้งหมด (<span id="countTabAll">0</span>)</button>
+              <button class="btn-filter-tab" data-filter="pending">ยังไม่เสร็จ (<span id="countTabPending">0</span>)</button>
+              <button class="btn-filter-tab" data-filter="done">เสร็จแล้ว (<span id="countTabDone">0</span>)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Main: Task List Section (Spacious & Clean) -->
+        <div class="day-modal-main">
+          <div class="tasks-section">
+            <div class="tasks-header">
+              <h3>รายการงานที่บันทึก (<span id="dayTasksCount">0</span> งาน)</h3>
+              <span class="tasks-hint">🖐️ คลิกลากที่ไอคอนหน้างานเพื่อจัดลำดับ / ติ๊กถูกเมื่องานเสร็จ</span>
+            </div>
+
+            <div id="dayTaskList" class="task-list">
+              <!-- Dynamic task items -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Trello-Style Labels Popover / Modal -->
+  <div id="labelPickerModal" class="modal-backdrop label-picker-backdrop">
+    <div class="trello-labels-popover" id="trelloLabelsPopover">
+      <!-- Main Label List View -->
+      <div id="labelListView" class="popover-view active">
+        <div class="popover-header">
+          <span class="popover-title">Labels</span>
+          <button type="button" class="popover-close-btn" id="btnCloseLabelPicker">&times;</button>
+        </div>
+
+        <div class="popover-search">
+          <input type="text" id="labelSearchInput" class="trello-input" placeholder="Search labels..." autocomplete="off">
+        </div>
+
+        <div class="popover-section-label">Labels</div>
+
+        <div id="labelsContainer" class="trello-labels-list">
+          <!-- Dynamically populated labels matching Trello style -->
+        </div>
+
+        <div class="popover-footer">
+          <button type="button" id="btnGoToCreateLabel" class="trello-btn-block">Create a new label</button>
+          <button type="button" id="btnToggleColorblind" class="trello-btn-subtle">
+            <span id="colorblindText">Enable colorblind friendly mode</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Create / Edit Label View -->
+      <div id="labelEditView" class="popover-view">
+        <div class="popover-header">
+          <button type="button" class="popover-back-btn" id="btnBackToLabelList">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          </button>
+          <span class="popover-title" id="labelEditorTitle">Create label</span>
+          <button type="button" class="popover-close-btn" id="btnCloseLabelEditor">&times;</button>
+        </div>
+
+        <div class="popover-body">
+          <div class="form-group">
+            <label class="trello-field-label">Title</label>
+            <input type="text" id="labelTitleInput" class="trello-input" placeholder="Label name (e.g. กำลังสั่งป้าย)" autocomplete="off">
+          </div>
+
+          <div class="form-group">
+            <label class="trello-field-label">Select a color</label>
+            <div id="colorPaletteGrid" class="color-palette-grid">
+              <!-- Colors palette swatches -->
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="trello-field-label">Or Custom Color</label>
+            <div class="custom-color-row">
+              <input type="color" id="customColorPicker" value="#0055cc" class="custom-color-input">
+              <span id="customColorHex" class="custom-color-hex">#0055cc</span>
+            </div>
+          </div>
+
+          <div class="label-preview-box">
+            <label class="trello-field-label">Preview</label>
+            <div id="labelLivePreview" class="trello-label-item-preview">
+              <span id="previewLabelText">Preview Label</span>
+            </div>
+          </div>
+
+          <div class="label-actions-row">
+            <button type="button" id="btnSaveLabel" class="btn btn-primary trello-save-btn">Save</button>
+            <button type="button" id="btnDeleteLabel" class="btn btn-danger trello-delete-btn" style="display: none;">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Edit Task Modal -->
+  <div id="editTaskModal" class="modal-backdrop">
+    <div class="modal-box modal-md">
+      <div class="modal-header">
+        <h3>แก้ไขข้อมูลงาน</h3>
+        <button class="modal-close-btn" id="btnCloseEditTaskModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="editTaskForm">
+          <input type="hidden" id="editTaskId">
+          <input type="hidden" id="editTaskDate">
+          <div class="form-group">
+            <label class="form-label">ชื่องาน</label>
+            <input type="text" id="editTaskTitle" class="form-input" required autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label">รายละเอียด</label>
+            <textarea id="editTaskDesc" class="form-textarea" rows="3"></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" id="btnCancelEditTask">ยกเลิก</button>
+            <button type="submit" class="btn btn-primary">บันทึกการแก้ไข</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Backup & Restore Modal -->
+  <div id="backupModal" class="modal-backdrop">
+    <div class="modal-box modal-md">
+      <div class="modal-header">
+        <h3>💾 จัดการสำรองข้อมูล (Backup & Restore)</h3>
+        <button class="modal-close-btn" id="btnCloseBackupModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="backup-desc">ข้อมูลทั้งหมดจะถูกบันทึกอัตโนมัติในเบราว์เซอร์ของคุณ (LocalStorage) คุณยังสามารถดาวน์โหลดเป็นไฟล์เพื่อย้ายเครื่องหรือเก็บสำรองไว้ได้</p>
+        
+        <div class="backup-actions">
+          <div class="backup-card">
+            <h4>Export Data (ดาวน์โหลดไฟล์สำรอง)</h4>
+            <p>บันทึกงานและ Tags ทั้งหมดลงไฟล์ .json</p>
+            <button id="btnExportJSON" class="btn btn-secondary btn-block">⬇️ ดาวน์โหลด Backup JSON</button>
+          </div>
+
+          <div class="backup-card">
+            <h4>Import Data (นำเข้าไฟล์สำรอง)</h4>
+            <p>นำเข้าข้อมูลจากไฟล์ .json ที่เคยบันทึกไว้</p>
+            <input type="file" id="importFileInput" accept=".json" style="display: none;">
+            <button id="btnImportJSON" class="btn btn-outline btn-block">⬆️ เลือกไฟล์เพื่อกู้คืน</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. Drag & Drop Task Across Days Modal -->
+  <div id="dragDropActionModal" class="modal-backdrop">
+    <div class="modal-box modal-md">
+      <div class="modal-header">
+        <h3 id="dragDropModalHeader">📅 จัดการงานต่อเนื่องข้ามวัน</h3>
+        <button class="modal-close-btn" id="btnCloseDragDropModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="drag-drop-task-info">
+          <p class="drag-drop-prompt">เลือกรูปแบบการจัดการสำหรับงาน:</p>
+          <div class="drag-task-preview-card" id="dragTaskPreviewCard">
+            <!-- task title & tags injected here -->
+          </div>
+          <div class="drag-arrow-flow">
+            <span id="dragFromDateTxt" class="drag-date-badge">จาก: 24 พ.ย. 2026</span>
+            <span class="arrow-icon">➡️</span>
+            <span id="dragToDateTxt" class="drag-date-badge highlight">ไปยัง: 25 พ.ย. 2026</span>
+          </div>
+        </div>
+
+        <div class="drag-drop-choices">
+          <button type="button" class="btn-choice-card active-recommend" id="btnChoiceCopyTask">
+            <div class="choice-icon">📋</div>
+            <div class="choice-text">
+              <div class="choice-title">
+                <strong id="btnChoiceCopyTitle">คัดลอกเพื่อทำงานต่อเนื่อง</strong>
+                <span class="recommend-pill">แนะนำ</span>
+              </div>
+              <span class="choice-desc" id="btnChoiceCopyDesc">สร้างงานในวันใหม่เพื่อทำต่อ (โดยคงงานในวันเดิมไว้ด้วย)</span>
+            </div>
+          </button>
+
+          <!-- Optional choice for only pending tasks when dragging entire day -->
+          <button type="button" class="btn-choice-card" id="btnChoiceCopyPending" style="display: none;">
+            <div class="choice-icon">⏳</div>
+            <div class="choice-text">
+              <div class="choice-title">
+                <strong id="btnChoicePendingTitle">คัดลอกเฉพาะงานที่ยังไม่เสร็จ</strong>
+              </div>
+              <span class="choice-desc" id="btnChoicePendingDesc">คัดลอกเฉพาะงานที่ยังค้างอยู่ไปทำต่อในวันถัดไป</span>
+            </div>
+          </button>
+
+          <button type="button" class="btn-choice-card" id="btnChoiceMoveTask">
+            <div class="choice-icon">🔄</div>
+            <div class="choice-text">
+              <div class="choice-title">
+                <strong id="btnChoiceMoveTitle">ย้ายงานไปวันใหม่</strong>
+              </div>
+              <span class="choice-desc" id="btnChoiceMoveDesc">ย้ายงานจากวันเดิมไปอยู่วันใหม่แทน (ลบออกจากวันเดิม)</span>
+            </div>
+          </button>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 8px;">
+          <button type="button" class="btn btn-secondary" id="btnCancelDragDrop">ยกเลิก</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
