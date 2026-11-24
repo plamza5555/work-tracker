@@ -84,7 +84,7 @@
     undoStack: [],
     newTaskAttachments: [],
     editingTaskAttachments: [],
-    googleAccessToken: sessionStorage.getItem('work_tracker_gdrive_token') || null
+    googleAccessToken: localStorage.getItem('work_tracker_gdrive_token') || sessionStorage.getItem('work_tracker_gdrive_token') || null
   };
 
   // --- Storage Helper Functions ---
@@ -504,6 +504,7 @@
         if (result && result.user) {
           if (result.credential && result.credential.accessToken) {
             state.googleAccessToken = result.credential.accessToken;
+            localStorage.setItem('work_tracker_gdrive_token', state.googleAccessToken);
             sessionStorage.setItem('work_tracker_gdrive_token', state.googleAccessToken);
           }
           showToast(`🎉 ยินดีต้อนรับ ${result.user.displayName || result.user.email}!`);
@@ -792,6 +793,7 @@
       .then((result) => {
         if (result.credential && result.credential.accessToken) {
           state.googleAccessToken = result.credential.accessToken;
+          localStorage.setItem('work_tracker_gdrive_token', state.googleAccessToken);
           sessionStorage.setItem('work_tracker_gdrive_token', state.googleAccessToken);
         }
         updateDriveStatusUI();
@@ -913,6 +915,7 @@
     if (!state.firebaseAuth) return;
     state.firebaseAuth.signOut().then(() => {
       state.googleAccessToken = null;
+      localStorage.removeItem('work_tracker_gdrive_token');
       sessionStorage.removeItem('work_tracker_gdrive_token');
       updateDriveStatusUI();
       showToast('ออกจากระบบ Cloud แล้ว (กลับสู่โหมดในเครื่อง)');
@@ -2088,27 +2091,120 @@
     });
   }
 
+  function findExistingAttachmentAnywhere(fileName) {
+    if (!fileName || !state.tasks) return null;
+    for (const dateKey of Object.keys(state.tasks)) {
+      const dayTasks = state.tasks[dateKey];
+      if (Array.isArray(dayTasks)) {
+        for (const task of dayTasks) {
+          if (Array.isArray(task.attachments)) {
+            const found = task.attachments.find(a => a.name === fileName && a.uploadedToDrive && a.driveLink);
+            if (found) return found;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function syncAttachmentDriveStatus(att) {
+    if (!att) return;
+
+    // 1. ซิงก์ลงใน editingTaskAttachments (หากเปิดหน้าต่างแก้ไขงานอยู่)
+    if (state.editingTaskAttachments && Array.isArray(state.editingTaskAttachments)) {
+      state.editingTaskAttachments.forEach(a => {
+        if (a.id === att.id || a.name === att.name) {
+          a.uploadedToDrive = att.uploadedToDrive;
+          a.driveId = att.driveId || null;
+          a.driveLink = att.driveLink || null;
+          a.driveThumbnail = att.driveThumbnail || null;
+          a.isUploading = false;
+        }
+      });
+      renderEditTaskAttachments();
+    }
+
+    // 2. ซิงก์ลงใน newTaskAttachments (หากเปิดหน้าต่างเพิ่มงานอยู่)
+    if (state.newTaskAttachments && Array.isArray(state.newTaskAttachments)) {
+      state.newTaskAttachments.forEach(a => {
+        if (a.id === att.id || a.name === att.name) {
+          a.uploadedToDrive = att.uploadedToDrive;
+          a.driveId = att.driveId || null;
+          a.driveLink = att.driveLink || null;
+          a.driveThumbnail = att.driveThumbnail || null;
+          a.isUploading = false;
+        }
+      });
+      renderNewTaskAttachments();
+    }
+
+    // 3. ซิงก์ลงใน state.tasks ทุกวันและทุกงานที่มีไฟล์นี้
+    if (state.tasks) {
+      Object.keys(state.tasks).forEach(dateKey => {
+        const dayList = state.tasks[dateKey];
+        if (Array.isArray(dayList)) {
+          dayList.forEach(task => {
+            if (Array.isArray(task.attachments)) {
+              task.attachments.forEach(a => {
+                if (a.id === att.id || a.name === att.name) {
+                  a.uploadedToDrive = att.uploadedToDrive;
+                  a.driveId = att.driveId || null;
+                  a.driveLink = att.driveLink || null;
+                  a.driveThumbnail = att.driveThumbnail || null;
+                  a.isUploading = false;
+                }
+              });
+            }
+          });
+        }
+      });
+    }
+
+    // บันทึกลง Storage ทันที เพื่อป้องกันการรีเฟรชแล้วสถานะหาย
+    saveTasks();
+    renderDayTasks();
+    renderCalendar();
+  }
+
   async function uploadFileToGoogleDrive(file, accessToken) {
     if (!accessToken) throw new Error('No Google Access Token');
-    const folderId = GOOGLE_DRIVE_FOLDER_ID;
+    const folderId = (window.GOOGLE_DRIVE_FOLDER_ID || '').trim();
 
     const metadata = {
       name: file.name,
-      parents: [folderId],
       mimeType: file.type || 'application/octet-stream'
     };
+    if (folderId) {
+      metadata.parents = [folderId];
+    }
 
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
     form.append('file', file);
 
-    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,webContentLink,thumbnailLink', {
+    let res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,webContentLink,thumbnailLink', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`
       },
       body: form
     });
+
+    // หากอัปโหลดไม่สำเร็จเนื่องจากโฟลเดอร์ ID ไม่ถูกต้อง (404/403) ให้ลองอัปโหลดไปยังหน้าแรก (My Drive) สำรองทันที
+    if (!res.ok && folderId) {
+      console.warn(`Drive upload to folder "${folderId}" failed with status ${res.status}, retrying upload to My Drive root...`);
+      delete metadata.parents;
+      const retryForm = new FormData();
+      retryForm.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      retryForm.append('file', file);
+      res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,webContentLink,thumbnailLink', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: retryForm
+      });
+    }
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -2121,9 +2217,12 @@
 
   async function findExistingDriveFile(fileName, accessToken) {
     if (!accessToken || !fileName) return null;
-    const folderId = window.GOOGLE_DRIVE_FOLDER_ID || '1xF51wwGdvrCjMzzYC3CR84xMr5VZQC9K';
+    const folderId = (window.GOOGLE_DRIVE_FOLDER_ID || '').trim();
     const cleanName = fileName.replace(/'/g, "\\'");
-    const q = `'${folderId}' in parents and name = '${cleanName}' and trashed = false`;
+    let q = `name = '${cleanName}' and trashed = false`;
+    if (folderId) {
+      q = `'${folderId}' in parents and ${q}`;
+    }
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,webViewLink,thumbnailLink,size)&pageSize=1`;
 
     try {
@@ -2132,7 +2231,20 @@
           'Authorization': `Bearer ${accessToken}`
         }
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        // หากโฟลเดอร์ระบุไว้ไม่ถูกต้อง ให้ลองค้นหาทั่วทั้ง Google Drive
+        if (folderId) {
+          const fallbackUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`name = '${cleanName}' and trashed = false`)}&fields=files(id,name,webViewLink,thumbnailLink,size)&pageSize=1`;
+          const fallbackRes = await fetch(fallbackUrl, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          });
+          if (fallbackRes.ok) {
+            const fallbackData = await fallbackRes.json();
+            if (fallbackData.files && fallbackData.files.length > 0) return fallbackData.files[0];
+          }
+        }
+        return null;
+      }
       const data = await res.json();
       if (data.files && data.files.length > 0) {
         return data.files[0];
@@ -2170,7 +2282,7 @@
         driveLink: null,
         driveThumbnail: null,
         uploadedToDrive: false,
-        isUploading: !!state.googleAccessToken
+        isUploading: false
       };
 
       targetArray.push(newAtt);
@@ -2191,25 +2303,39 @@
         console.warn('File read error', err);
       }
 
-      // Upload to Google Drive if access token available (with duplicate check on Drive)
-      if (state.googleAccessToken) {
+      // 2. ตรวจสอบว่าเคยมีไฟล์ชื่อนี้ในระบบที่เคยขึ้น Drive แล้วหรือไม่
+      const localMatch = findExistingAttachmentAnywhere(file.name);
+      if (localMatch && localMatch.driveLink) {
+        newAtt.driveId = localMatch.driveId || null;
+        newAtt.driveLink = localMatch.driveLink || null;
+        newAtt.driveThumbnail = localMatch.driveThumbnail || null;
+        newAtt.uploadedToDrive = true;
+        newAtt.isUploading = false;
+        showToast(`☁️ พบไฟล์ "${file.name}" เคยขึ้น Google Drive แล้ว (เชื่อมโยงทันที ไม่ต้องอัปโหลดซ้ำ)`);
+        syncAttachmentDriveStatus(newAtt);
+      } else if (state.googleAccessToken) {
+        newAtt.isUploading = true;
+        if (renderCallback) renderCallback();
+
         try {
           const existingDriveFile = await findExistingDriveFile(file.name, state.googleAccessToken);
           if (existingDriveFile) {
-            newAtt.driveId = existingDriveFile.id;
-            newAtt.driveLink = existingDriveFile.webViewLink;
-            newAtt.driveThumbnail = existingDriveFile.thumbnailLink;
+            newAtt.driveId = existingDriveFile.id || null;
+            newAtt.driveLink = existingDriveFile.webViewLink || null;
+            newAtt.driveThumbnail = existingDriveFile.thumbnailLink || null;
             newAtt.uploadedToDrive = true;
             newAtt.isUploading = false;
             showToast(`☁️ พบไฟล์ "${file.name}" บน Google Drive แล้ว (เชื่อมโยงทันที ไม่ต้องอัปโหลดซ้ำ)`);
+            syncAttachmentDriveStatus(newAtt);
           } else {
             const driveData = await uploadFileToGoogleDrive(file, state.googleAccessToken);
-            newAtt.driveId = driveData.id;
-            newAtt.driveLink = driveData.webViewLink;
-            newAtt.driveThumbnail = driveData.thumbnailLink;
+            newAtt.driveId = driveData.id || null;
+            newAtt.driveLink = driveData.webViewLink || null;
+            newAtt.driveThumbnail = driveData.thumbnailLink || null;
             newAtt.uploadedToDrive = true;
             newAtt.isUploading = false;
             showToast(`🎉 อัปโหลด "${file.name}" ขึ้น Google Drive เรียบร้อย!`);
+            syncAttachmentDriveStatus(newAtt);
           }
         } catch (driveErr) {
           console.warn('Google Drive upload failed, file stored locally', driveErr);
@@ -2476,17 +2602,29 @@
     showToast(`☁️ กำลังอัปโหลด "${att.name}" ขึ้น Google Drive...`, 'info');
 
     try {
-      // ตรวจสอบก่อนว่าไฟล์นี้มีอยู่บน Google Drive แล้วหรือไม่ เพื่อป้องกันการอัปโหลดซ้ำ
-      const existing = await findExistingDriveFile(att.name, state.googleAccessToken);
-      if (existing) {
-        att.driveId = existing.id;
-        att.driveLink = existing.webViewLink;
-        att.driveThumbnail = existing.thumbnailLink;
+      // 1. ตรวจสอบก่อนว่าเคยมีไฟล์ชื่อนี้ในระบบที่ขึ้น Drive แล้วหรือไม่
+      const localMatch = findExistingAttachmentAnywhere(att.name);
+      if (localMatch && localMatch.driveLink) {
+        att.driveId = localMatch.driveId || null;
+        att.driveLink = localMatch.driveLink || null;
+        att.driveThumbnail = localMatch.driveThumbnail || null;
         att.uploadedToDrive = true;
         att.isUploading = false;
-        saveTasks();
-        renderDayTasks();
-        renderCalendar();
+        syncAttachmentDriveStatus(att);
+        if (renderCallback) renderCallback();
+        showToast(`☁️ พบไฟล์ "${att.name}" บน Google Drive แล้ว (เชื่อมโยงให้อัตโนมัติ ไม่เปลืองพื้นที่ซ้ำ)`);
+        return;
+      }
+
+      // 2. ตรวจสอบบน Google Drive API ว่ามีไฟล์นี้อยู่แล้วหรือไม่ เพื่อป้องกันการอัปโหลดซ้ำ
+      const existing = await findExistingDriveFile(att.name, state.googleAccessToken);
+      if (existing) {
+        att.driveId = existing.id || null;
+        att.driveLink = existing.webViewLink || null;
+        att.driveThumbnail = existing.thumbnailLink || null;
+        att.uploadedToDrive = true;
+        att.isUploading = false;
+        syncAttachmentDriveStatus(att);
         if (renderCallback) renderCallback();
         showToast(`☁️ พบไฟล์ "${att.name}" บน Google Drive แล้ว (เชื่อมโยงให้อัตโนมัติ ไม่เปลืองพื้นที่ซ้ำ)`);
         return;
@@ -2495,14 +2633,12 @@
       const blob = dataUrlToBlob(fileData);
       const fileObj = new File([blob], att.name, { type: att.type });
       const driveData = await uploadFileToGoogleDrive(fileObj, state.googleAccessToken);
-      att.driveId = driveData.id;
-      att.driveLink = driveData.webViewLink;
-      att.driveThumbnail = driveData.thumbnailLink;
+      att.driveId = driveData.id || null;
+      att.driveLink = driveData.webViewLink || null;
+      att.driveThumbnail = driveData.thumbnailLink || null;
       att.uploadedToDrive = true;
       att.isUploading = false;
-      saveTasks();
-      renderDayTasks();
-      renderCalendar();
+      syncAttachmentDriveStatus(att);
       if (renderCallback) renderCallback();
       showToast(`🎉 อัปโหลด "${att.name}" ขึ้น Google Drive สำเร็จ!`);
     } catch (err) {
