@@ -350,6 +350,12 @@
   let remoteSyncUnsubscribe = null;
 
   function getStoredFirebaseConfig() {
+    // 1. ตรวจสอบค่าตั้งต้นจากไฟล์ firebase-config.js ก่อนเป็นอันดับแรก (พร้อมใช้งานทันทีทุกเครื่อง/มือถือ)
+    if (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey && window.FIREBASE_CONFIG.apiKey.trim() !== '') {
+      return window.FIREBASE_CONFIG;
+    }
+
+    // 2. ตรวจสอบจาก LocalStorage ที่บันทึกผ่าน UI
     try {
       const raw = localStorage.getItem('work_tracker_firebase_config');
       if (!raw) return null;
@@ -383,6 +389,19 @@
 
       state.firebaseAuth = firebase.auth();
       state.firebaseDb = firebase.database();
+
+      // Check redirect result for mobile Google Login
+      state.firebaseAuth.getRedirectResult().then((result) => {
+        if (result && result.user) {
+          showToast(`🎉 ยินดีต้อนรับ ${result.user.displayName || result.user.email}!`);
+          pushToCloud(true);
+        }
+      }).catch((err) => {
+        console.error('Redirect auth error:', err);
+        if (err.code === 'auth/unauthorized-domain') {
+          showAuthError(`⚠️ โดเมนยังไม่ได้รับอนุญาต: กรุณาเพิ่ม "plamza5555.github.io" ใน Firebase Console > Authentication > Settings > Authorized domains`);
+        }
+      });
 
       // Listen for connection state (online/offline)
       state.firebaseDb.ref('.info/connected').on('value', (snap) => {
@@ -624,7 +643,7 @@
 
   function handleGoogleSignIn() {
     if (!state.firebaseAuth) {
-      showAuthError('ยังไม่ได้ตั้งค่า Firebase! กรุณาไปที่แท็บ "⚙️ ตั้งค่า Firebase" ก่อน');
+      showAuthError('ยังไม่ได้ตั้งค่า Firebase! กรุณาตรวจสอบการตั้งค่า Firebase');
       return;
     }
 
@@ -633,6 +652,13 @@
 
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
+
+    // On mobile devices, popup is often blocked by mobile browsers (Safari / Chrome mobile)
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+      state.firebaseAuth.signInWithRedirect(provider);
+      return;
+    }
 
     state.firebaseAuth.signInWithPopup(provider)
       .then((result) => {
@@ -645,12 +671,16 @@
       .catch((err) => {
         console.error('Google Sign-in error:', err);
         let msg = err.message || 'เกิดข้อผิดพลาดในการลงชื่อเข้าใช้ด้วย Google';
-        if (err.code === 'auth/popup-closed-by-user') {
-          msg = 'หน้าต่างเข้าสู่ระบบถูกปิดก่อนเสร็จสิ้น';
-        } else if (err.code === 'auth/unauthorized-domain') {
-          msg = 'โดเมนนี้ยังไม่ได้รับอนุญาตใน Firebase Console > Authentication > Settings > Authorized domains';
+        if (err.code === 'auth/unauthorized-domain') {
+          msg = `⚠️ โดเมนยังไม่ได้รับอนุญาต: กรุณาเพิ่ม "plamza5555.github.io" ใน Firebase Console > Authentication > Settings > Authorized domains`;
+        } else if (err.code === 'auth/popup-blocked') {
+          // Fallback to redirect
+          state.firebaseAuth.signInWithRedirect(provider);
+          return;
+        } else if (err.code === 'auth/popup-closed-by-user') {
+          msg = 'หน้าต่างเข้าสู่ระบบถูกปิดก่อนทำรายการเสร็จ';
         } else if (err.code === 'auth/operation-not-supported-in-this-environment') {
-          msg = '💡 Google Login ต้องรันผ่านเว็บ (เช่น GitHub Pages หรือ http://) ไม่สามารถรันบน file:/// ในเครื่องได้โดยตรง หากทดสอบในเครื่องสามารถใช้ "รหัส PIN ด่วน" แทนได้ครับ';
+          msg = '💡 Google Login ต้องรันผ่านเว็บ (เช่น GitHub Pages หรือ http://) ไม่สามารถรันบน file:/// ในเครื่องได้โดยตรง';
         }
         showAuthError(msg);
       });
