@@ -2249,13 +2249,24 @@
       chip.appendChild(removeBtn);
     }
 
+    if (!att.uploadedToDrive) {
+      badgeSpan.title = 'คลิกที่นี่เพื่ออัปโหลดไฟล์นี้ขึ้น Google Drive';
+      badgeSpan.style.cursor = 'pointer';
+      badgeSpan.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideAttachmentPreview();
+        uploadExistingAttachmentToDrive(att);
+      });
+    }
+
     // Hover Preview Listener
     chip.addEventListener('mouseenter', () => {
+      cancelHideAttachmentPreview();
       showAttachmentPreview(att, chip);
     });
 
     chip.addEventListener('mouseleave', () => {
-      hideAttachmentPreview();
+      scheduleHideAttachmentPreview();
     });
 
     // Click to Open File
@@ -2265,6 +2276,22 @@
     });
 
     return chip;
+  }
+
+  let previewHideTimer = null;
+
+  function scheduleHideAttachmentPreview() {
+    if (previewHideTimer) clearTimeout(previewHideTimer);
+    previewHideTimer = setTimeout(() => {
+      hideAttachmentPreview();
+    }, 300);
+  }
+
+  function cancelHideAttachmentPreview() {
+    if (previewHideTimer) {
+      clearTimeout(previewHideTimer);
+      previewHideTimer = null;
+    }
   }
 
   function showAttachmentPreview(att, targetEl) {
@@ -2322,6 +2349,7 @@
   }
 
   function hideAttachmentPreview() {
+    cancelHideAttachmentPreview();
     if (el.filePreviewTooltip) {
       el.filePreviewTooltip.classList.remove('active');
     }
@@ -2973,6 +3001,12 @@
 
     if (el.btnQuickDriveLogin) el.btnQuickDriveLogin.addEventListener('click', handleDriveLoginClick);
     if (el.btnQuickDriveLoginEdit) el.btnQuickDriveLoginEdit.addEventListener('click', handleDriveLoginClick);
+
+    // Tooltip hover bridge listeners
+    if (el.filePreviewTooltip) {
+      el.filePreviewTooltip.addEventListener('mouseenter', cancelHideAttachmentPreview);
+      el.filePreviewTooltip.addEventListener('mouseleave', scheduleHideAttachmentPreview);
+    }
 
     // Close modals on clicking backdrop
     window.addEventListener('click', (e) => {
