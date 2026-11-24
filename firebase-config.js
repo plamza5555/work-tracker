@@ -11,3 +11,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:616174480095:web:d8995d44a00412133e176a",
   measurementId: "G-MC2748MLK2"
 };
+
+// โฟลเดอร์ Google Drive สำหรับจัดเก็บไฟล์เอกสารและรูปภาพ
+window.GOOGLE_DRIVE_FOLDER_ID = "1xF51wwGdvrCjMzzYC3CR84xMr5VZQC9K";
+

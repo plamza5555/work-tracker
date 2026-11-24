@@ -2135,3 +2135,236 @@ body.theme-light .undo-shortcut-hint {
     min-width: 140px;
   }
 }
+
+/* ============================================================
+   File Attachments & Google Drive Hover Preview Styles
+   ============================================================ */
+.drive-folder-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 0.73rem;
+  color: #579dff;
+  background: rgba(87, 157, 255, 0.1);
+  border: 1px solid rgba(87, 157, 255, 0.25);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.drive-folder-link:hover {
+  background: rgba(87, 157, 255, 0.2);
+  border-color: #579dff;
+  color: #79b8ff;
+  text-decoration: none;
+}
+
+.attachments-preview-list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  min-height: 0;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  background: #283038;
+  border: 1px solid #3c4854;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: #c9d1d9;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  max-width: 220px;
+  position: relative;
+}
+
+.attachment-chip:hover {
+  background: #323d47;
+  border-color: #579dff;
+  color: #579dff;
+  transform: translateY(-1px);
+}
+
+.attachment-chip.uploading {
+  opacity: 0.7;
+  border-style: dashed;
+}
+
+.attachment-chip .chip-icon {
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.attachment-chip .chip-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+.attachment-chip .chip-badge {
+  font-size: 0.62rem;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(87, 157, 255, 0.2);
+  color: #579dff;
+}
+
+.attachment-chip .chip-badge.local {
+  background: rgba(255, 171, 0, 0.2);
+  color: #ffab00;
+}
+
+.attachment-chip .chip-remove-btn {
+  background: none;
+  border: none;
+  color: #8b949e;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  margin-left: 2px;
+  transition: color 0.15s ease;
+}
+
+.attachment-chip .chip-remove-btn:hover {
+  color: #ff5c5c;
+}
+
+/* In task list */
+.task-attachments-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+/* Compact indicator on calendar day cells */
+.cell-task-attachment-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.65rem;
+  color: #8b949e;
+  margin-left: 4px;
+  opacity: 0.85;
+}
+
+/* Floating Hover Preview Tooltip */
+.file-preview-tooltip {
+  position: fixed;
+  z-index: 999999;
+  pointer-events: none;
+  background: #181d22;
+  border: 1px solid #3c4854;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0, 0, 0, 0.5);
+  padding: 10px;
+  width: 250px;
+  max-width: 90vw;
+  backdrop-filter: blur(10px);
+  transform: translate(-50%, -100%);
+  margin-top: -12px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+
+.file-preview-tooltip.active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.file-preview-img-wrap {
+  width: 100%;
+  max-height: 170px;
+  min-height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0f1215;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.file-preview-img-wrap img {
+  max-width: 100%;
+  max-height: 170px;
+  object-fit: contain;
+  display: block;
+}
+
+.file-preview-pdf-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 10px;
+  background: rgba(255, 92, 92, 0.08);
+  border: 1px dashed rgba(255, 92, 92, 0.35);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.pdf-doc-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #ff7b7b;
+  margin-top: 4px;
+}
+
+.file-preview-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.file-preview-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #e6edf3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-preview-details {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: #8b949e;
+}
+
+.preview-storage-badge {
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(87, 157, 255, 0.15);
+  color: #579dff;
+}
+
+.preview-storage-badge.badge-local {
+  background: rgba(255, 171, 0, 0.15);
+  color: #ffab00;
+}
+
+.file-preview-action-hint {
+  font-size: 0.68rem;
+  color: #579dff;
+  margin-top: 4px;
+  text-align: right;
+  font-weight: 500;
+}
+

@@ -81,7 +81,10 @@
     firebaseDb: null,
     firebaseAuth: null,
     lastSyncTimestamp: null,
-    undoStack: []
+    undoStack: [],
+    newTaskAttachments: [],
+    editingTaskAttachments: [],
+    googleAccessToken: sessionStorage.getItem('work_tracker_gdrive_token') || null
   };
 
   // --- Storage Helper Functions ---
@@ -401,7 +404,22 @@
     undoActionDesc: document.getElementById('undoActionDesc'),
     btnUndoAction: document.getElementById('btnUndoAction'),
     btnCloseUndoPopup: document.getElementById('btnCloseUndoPopup'),
-    undoTimerProgress: document.getElementById('undoTimerProgress')
+    undoTimerProgress: document.getElementById('undoTimerProgress'),
+
+    // File Attachments & Preview Elements
+    btnAttachNewTaskFiles: document.getElementById('btnAttachNewTaskFiles'),
+    newTaskFileInput: document.getElementById('newTaskFileInput'),
+    newTaskAttachmentsPreview: document.getElementById('newTaskAttachmentsPreview'),
+    btnAttachEditTaskFiles: document.getElementById('btnAttachEditTaskFiles'),
+    editTaskFileInput: document.getElementById('editTaskFileInput'),
+    editTaskAttachmentsList: document.getElementById('editTaskAttachmentsList'),
+    filePreviewTooltip: document.getElementById('filePreviewTooltip'),
+    filePreviewImageContainer: document.getElementById('filePreviewImageContainer'),
+    filePreviewImage: document.getElementById('filePreviewImage'),
+    filePreviewPdfContainer: document.getElementById('filePreviewPdfContainer'),
+    filePreviewName: document.getElementById('filePreviewName'),
+    filePreviewSize: document.getElementById('filePreviewSize'),
+    filePreviewStorageBadge: document.getElementById('filePreviewStorageBadge')
   };
 
   let calendarDragData = null;
@@ -499,6 +517,10 @@
       // Check redirect result for mobile Google Login
       state.firebaseAuth.getRedirectResult().then((result) => {
         if (result && result.user) {
+          if (result.credential && result.credential.accessToken) {
+            state.googleAccessToken = result.credential.accessToken;
+            sessionStorage.setItem('work_tracker_gdrive_token', state.googleAccessToken);
+          }
           showToast(`🎉 ยินดีต้อนรับ ${result.user.displayName || result.user.email}!`);
           pushToCloud(true);
         }
@@ -770,6 +792,7 @@
     if (el.authErrorMsg) el.authErrorMsg.style.display = 'none';
 
     const provider = new firebase.auth.GoogleAuthProvider();
+    provider.addScope('https://www.googleapis.com/auth/drive.file');
     provider.setCustomParameters({ prompt: 'select_account' });
 
     // On mobile devices, popup is often blocked by mobile browsers (Safari / Chrome mobile)
@@ -781,6 +804,10 @@
 
     state.firebaseAuth.signInWithPopup(provider)
       .then((result) => {
+        if (result.credential && result.credential.accessToken) {
+          state.googleAccessToken = result.credential.accessToken;
+          sessionStorage.setItem('work_tracker_gdrive_token', state.googleAccessToken);
+        }
         if (uploadLocal) {
           pushToCloud(true);
         }
@@ -1128,6 +1155,14 @@
 
       pill.appendChild(dot);
       pill.appendChild(titleSpan);
+
+      if (task.attachments && task.attachments.length > 0) {
+        const attIcon = document.createElement('span');
+        attIcon.className = 'cell-task-attachment-icon';
+        attIcon.textContent = `📎${task.attachments.length > 1 ? task.attachments.length : ''}`;
+        attIcon.title = `มี ${task.attachments.length} ไฟล์แนบ`;
+        pill.appendChild(attIcon);
+      }
 
       // Pill Drag events on Calendar
       pill.addEventListener('dragstart', (e) => {
@@ -1503,6 +1538,8 @@
     el.modalDateTitle.textContent = formatThaiFullDate(date);
     state.newTaskSelectedTagIds = [];
     renderNewTaskSelectedTags();
+    state.newTaskAttachments = [];
+    renderNewTaskAttachments();
     el.taskTitleInput.value = '';
     el.taskDescInput.value = '';
 
@@ -1646,6 +1683,17 @@
       tagsRow.appendChild(addTagBtn);
 
       content.appendChild(tagsRow);
+
+      // Attachments Row
+      if (task.attachments && task.attachments.length > 0) {
+        const attRow = document.createElement('div');
+        attRow.className = 'task-attachments-row';
+        task.attachments.forEach(att => {
+          const chip = createAttachmentChip(att, false);
+          attRow.appendChild(chip);
+        });
+        content.appendChild(attRow);
+      }
 
       // Actions (Move Up/Down, Edit, Delete)
       const actions = document.createElement('div');
@@ -1870,7 +1918,8 @@
       title: title,
       desc: desc,
       done: false,
-      tags: [...state.newTaskSelectedTagIds]
+      tags: [...state.newTaskSelectedTagIds],
+      attachments: [...state.newTaskAttachments]
     };
 
     state.tasks[dateKey].unshift(newTask);
@@ -1881,6 +1930,8 @@
     el.taskDescInput.value = '';
     state.newTaskSelectedTagIds = [];
     renderNewTaskSelectedTags();
+    state.newTaskAttachments = [];
+    renderNewTaskAttachments();
 
     renderDayTasks();
     renderCalendar();
@@ -1908,11 +1959,15 @@
     el.editTaskDate.value = dateKey;
     el.editTaskTitle.value = task.title;
     el.editTaskDesc.value = task.desc || '';
+    state.editingTaskAttachments = task.attachments ? JSON.parse(JSON.stringify(task.attachments)) : [];
+    renderEditTaskAttachments();
     el.editTaskModal.classList.add('active');
   }
 
   function closeEditTaskModal() {
     el.editTaskModal.classList.remove('active');
+    state.editingTaskAttachments = [];
+    hideAttachmentPreview();
   }
 
   function handleSaveEditTask(e) {
@@ -1929,12 +1984,371 @@
       recordUndo(`แก้ไขงาน "${title}"`);
       task.title = title;
       task.desc = desc;
+      task.attachments = [...state.editingTaskAttachments];
       saveTasks();
       renderDayTasks();
       renderCalendar();
       closeEditTaskModal();
       showToast('แก้ไขข้อมูลงานสำเร็จ');
     }
+  }
+
+  // ============================================================
+  // File Attachments & Google Drive Management Module
+  // ============================================================
+  const GOOGLE_DRIVE_FOLDER_ID = window.GOOGLE_DRIVE_FOLDER_ID || '1xF51wwGdvrCjMzzYC3CR84xMr5VZQC9K';
+  const IDB_NAME = 'WorkTrackerFilesDB';
+  const IDB_STORE = 'attachments';
+
+  function openFilesDB() {
+    return new Promise((resolve) => {
+      if (!window.indexedDB) {
+        resolve(null);
+        return;
+      }
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+          req.result.createObjectStore(IDB_STORE, { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    });
+  }
+
+  async function saveFileToIndexedDB(id, dataUrl) {
+    try {
+      const db = await openFilesDB();
+      if (!db) return;
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put({ id, data: dataUrl, updatedAt: Date.now() });
+    } catch (e) {
+      console.warn('IndexedDB save failed', e);
+    }
+  }
+
+  async function getFileFromIndexedDB(id) {
+    try {
+      const db = await openFilesDB();
+      if (!db) return null;
+      return new Promise((resolve) => {
+        const tx = db.transaction(IDB_STORE, 'readonly');
+        const req = tx.objectStore(IDB_STORE).get(id);
+        req.onsuccess = () => resolve(req.result ? req.result.data : null);
+        req.onerror = () => resolve(null);
+      });
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function formatFileSize(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = (e) => reject(e);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function createThumbnail(file, maxDimension = 300, quality = 0.7) {
+    return new Promise((resolve) => {
+      if (!file.type || !file.type.startsWith('image/')) {
+        resolve(null);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxDimension) {
+              height = Math.round((height * maxDimension) / width);
+              width = maxDimension;
+            }
+          } else {
+            if (height > maxDimension) {
+              width = Math.round((width * maxDimension) / height);
+              height = maxDimension;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => resolve(null);
+        img.src = e.target.result;
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function uploadFileToGoogleDrive(file, accessToken) {
+    if (!accessToken) throw new Error('No Google Access Token');
+    const folderId = GOOGLE_DRIVE_FOLDER_ID;
+
+    const metadata = {
+      name: file.name,
+      parents: [folderId],
+      mimeType: file.type || 'application/octet-stream'
+    };
+
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    form.append('file', file);
+
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,webContentLink,thumbnailLink', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: form
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error ? err.error.message : `Drive upload error: ${res.status}`);
+    }
+
+    const driveFile = await res.json();
+    return driveFile;
+  }
+
+  async function handleFilesSelected(files, targetArray, renderCallback) {
+    if (!files || files.length === 0) return;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const attId = 'att-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
+      const isImg = file.type && file.type.startsWith('image/');
+
+      const newAtt = {
+        id: attId,
+        name: file.name,
+        size: file.size,
+        type: file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'),
+        thumbnail: null,
+        dataUrl: null,
+        driveId: null,
+        driveLink: null,
+        driveThumbnail: null,
+        uploadedToDrive: false,
+        isUploading: !!state.googleAccessToken
+      };
+
+      targetArray.push(newAtt);
+      if (renderCallback) renderCallback();
+
+      // Read & thumbnail
+      try {
+        if (isImg) {
+          const thumb = await createThumbnail(file, 280, 0.7);
+          newAtt.thumbnail = thumb;
+        }
+        const dataUrl = await readFileAsDataUrl(file);
+        await saveFileToIndexedDB(attId, dataUrl);
+        if (file.size < 120000) {
+          newAtt.dataUrl = dataUrl;
+        }
+      } catch (err) {
+        console.warn('File read error', err);
+      }
+
+      // Upload to Google Drive if access token available
+      if (state.googleAccessToken) {
+        try {
+          const driveData = await uploadFileToGoogleDrive(file, state.googleAccessToken);
+          newAtt.driveId = driveData.id;
+          newAtt.driveLink = driveData.webViewLink;
+          newAtt.driveThumbnail = driveData.thumbnailLink;
+          newAtt.uploadedToDrive = true;
+          newAtt.isUploading = false;
+          showToast(`☁️ อัปโหลด "${file.name}" ขึ้น Google Drive เรียบร้อย`);
+        } catch (driveErr) {
+          console.warn('Google Drive upload failed, file stored locally', driveErr);
+          newAtt.isUploading = false;
+          newAtt.uploadedToDrive = false;
+          showToast(`💾 บันทึก "${file.name}" ในเครื่อง (Google Drive ต้องล็อกอินใหม่)`, 'info');
+        }
+      } else {
+        newAtt.isUploading = false;
+        showToast(`💾 บันทึก "${file.name}" ในเครื่อง (ล็อกอิน Google เพื่อขึ้น Drive)`, 'info');
+      }
+
+      if (renderCallback) renderCallback();
+    }
+  }
+
+  function renderNewTaskAttachments() {
+    if (!el.newTaskAttachmentsPreview) return;
+    el.newTaskAttachmentsPreview.innerHTML = '';
+    if (!state.newTaskAttachments || state.newTaskAttachments.length === 0) return;
+
+    state.newTaskAttachments.forEach(att => {
+      const chip = createAttachmentChip(att, true, (toRemove) => {
+        state.newTaskAttachments = state.newTaskAttachments.filter(a => a.id !== toRemove.id);
+        renderNewTaskAttachments();
+      });
+      el.newTaskAttachmentsPreview.appendChild(chip);
+    });
+  }
+
+  function renderEditTaskAttachments() {
+    if (!el.editTaskAttachmentsList) return;
+    el.editTaskAttachmentsList.innerHTML = '';
+    if (!state.editingTaskAttachments || state.editingTaskAttachments.length === 0) {
+      el.editTaskAttachmentsList.innerHTML = '<span style="font-size: 0.75rem; color: #8b949e;">ไม่มีไฟล์แนบ</span>';
+      return;
+    }
+
+    state.editingTaskAttachments.forEach(att => {
+      const chip = createAttachmentChip(att, true, (toRemove) => {
+        state.editingTaskAttachments = state.editingTaskAttachments.filter(a => a.id !== toRemove.id);
+        renderEditTaskAttachments();
+      });
+      el.editTaskAttachmentsList.appendChild(chip);
+    });
+  }
+
+  function createAttachmentChip(att, canRemove = false, onRemove = null) {
+    const chip = document.createElement('div');
+    chip.className = `attachment-chip ${att.isUploading ? 'uploading' : ''}`;
+
+    const isImg = (att.type && att.type.startsWith('image/')) || (att.name && /\.(jpg|jpeg|png|gif|webp)$/i.test(att.name));
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'chip-icon';
+    iconSpan.textContent = isImg ? '🖼️' : '📄';
+    chip.appendChild(iconSpan);
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'chip-name';
+    nameSpan.textContent = att.name;
+    chip.appendChild(nameSpan);
+
+    const badgeSpan = document.createElement('span');
+    badgeSpan.className = `chip-badge ${att.uploadedToDrive ? '' : 'local'}`;
+    badgeSpan.textContent = att.isUploading ? '☁️ กำลังอัป...' : (att.uploadedToDrive ? '☁️ Drive' : '💾');
+    chip.appendChild(badgeSpan);
+
+    if (canRemove && onRemove) {
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'chip-remove-btn';
+      removeBtn.innerHTML = '&times;';
+      removeBtn.title = 'ลบไฟล์นี้';
+      removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideAttachmentPreview();
+        onRemove(att);
+      });
+      chip.appendChild(removeBtn);
+    }
+
+    // Hover Preview Listener
+    chip.addEventListener('mouseenter', () => {
+      showAttachmentPreview(att, chip);
+    });
+
+    chip.addEventListener('mouseleave', () => {
+      hideAttachmentPreview();
+    });
+
+    // Click to Open File
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openAttachmentFile(att);
+    });
+
+    return chip;
+  }
+
+  function showAttachmentPreview(att, targetEl) {
+    if (!el.filePreviewTooltip || !att) return;
+
+    el.filePreviewName.textContent = att.name || 'ไฟล์แนบ';
+    el.filePreviewSize.textContent = formatFileSize(att.size);
+
+    if (att.uploadedToDrive && att.driveLink) {
+      el.filePreviewStorageBadge.textContent = '☁️ Google Drive';
+      el.filePreviewStorageBadge.className = 'preview-storage-badge';
+    } else {
+      el.filePreviewStorageBadge.textContent = '💾 ไฟล์ในเครื่อง';
+      el.filePreviewStorageBadge.className = 'preview-storage-badge badge-local';
+    }
+
+    const isImage = (att.type && att.type.startsWith('image/')) || (att.name && /\.(jpg|jpeg|png|gif|webp)$/i.test(att.name));
+    if (isImage && (att.thumbnail || att.driveThumbnail || att.dataUrl)) {
+      el.filePreviewImage.src = att.thumbnail || att.driveThumbnail || att.dataUrl;
+      el.filePreviewImageContainer.style.display = 'flex';
+      el.filePreviewPdfContainer.style.display = 'none';
+    } else {
+      el.filePreviewImageContainer.style.display = 'none';
+      el.filePreviewPdfContainer.style.display = 'flex';
+    }
+
+    const rect = targetEl.getBoundingClientRect();
+    const tooltipX = rect.left + (rect.width / 2);
+    let tooltipY = rect.top;
+
+    // Boundary check so tooltip does not go above screen
+    if (tooltipY < 220) {
+      tooltipY = rect.bottom + 20;
+      el.filePreviewTooltip.style.transform = 'translate(-50%, 0)';
+    } else {
+      el.filePreviewTooltip.style.transform = 'translate(-50%, -100%)';
+    }
+
+    el.filePreviewTooltip.style.left = `${Math.max(130, Math.min(window.innerWidth - 130, tooltipX))}px`;
+    el.filePreviewTooltip.style.top = `${tooltipY}px`;
+    el.filePreviewTooltip.classList.add('active');
+  }
+
+  function hideAttachmentPreview() {
+    if (el.filePreviewTooltip) {
+      el.filePreviewTooltip.classList.remove('active');
+    }
+  }
+
+  async function openAttachmentFile(att) {
+    if (att.driveLink) {
+      window.open(att.driveLink, '_blank');
+      return;
+    }
+    if (att.dataUrl) {
+      const win = window.open();
+      if (att.type && att.type.startsWith('image/')) {
+        win.document.write(`<title>${att.name}</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;height:100vh;"><img src="${att.dataUrl}" style="max-width:100%;max-height:100vh;"></body>`);
+      } else {
+        win.location.href = att.dataUrl;
+      }
+      return;
+    }
+    const dbData = await getFileFromIndexedDB(att.id);
+    if (dbData) {
+      const win = window.open();
+      if (att.type && att.type.startsWith('image/')) {
+        win.document.write(`<title>${att.name}</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;height:100vh;"><img src="${dbData}" style="max-width:100%;max-height:100vh;"></body>`);
+      } else {
+        win.location.href = dbData;
+      }
+      return;
+    }
+    showToast('กำลังโหลดข้อมูลไฟล์...', 'info');
   }
 
   // --- ========================================== ---
@@ -2432,6 +2846,23 @@
     // Undo Popup controls
     if (el.btnUndoAction) el.btnUndoAction.addEventListener('click', performUndo);
     if (el.btnCloseUndoPopup) el.btnCloseUndoPopup.addEventListener('click', hideUndoPopup);
+
+    // File Attachment Event Listeners
+    if (el.btnAttachNewTaskFiles && el.newTaskFileInput) {
+      el.btnAttachNewTaskFiles.addEventListener('click', () => el.newTaskFileInput.click());
+      el.newTaskFileInput.addEventListener('change', (e) => {
+        handleFilesSelected(e.target.files, state.newTaskAttachments, renderNewTaskAttachments);
+        e.target.value = '';
+      });
+    }
+
+    if (el.btnAttachEditTaskFiles && el.editTaskFileInput) {
+      el.btnAttachEditTaskFiles.addEventListener('click', () => el.editTaskFileInput.click());
+      el.editTaskFileInput.addEventListener('change', (e) => {
+        handleFilesSelected(e.target.files, state.editingTaskAttachments, renderEditTaskAttachments);
+        e.target.value = '';
+      });
+    }
 
     // Close modals on clicking backdrop
     window.addEventListener('click', (e) => {
