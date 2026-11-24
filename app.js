@@ -350,20 +350,28 @@
   let remoteSyncUnsubscribe = null;
 
   function getStoredFirebaseConfig() {
+    let cfg = null;
     // 1. ตรวจสอบค่าตั้งต้นจากไฟล์ firebase-config.js ก่อนเป็นอันดับแรก (พร้อมใช้งานทันทีทุกเครื่อง/มือถือ)
     if (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey && window.FIREBASE_CONFIG.apiKey.trim() !== '') {
-      return window.FIREBASE_CONFIG;
+      cfg = Object.assign({}, window.FIREBASE_CONFIG);
+    } else {
+      // 2. ตรวจสอบจาก LocalStorage ที่บันทึกผ่าน UI
+      try {
+        const raw = localStorage.getItem('work_tracker_firebase_config');
+        if (raw) cfg = JSON.parse(raw);
+      } catch (e) {
+        console.warn('Invalid stored Firebase config', e);
+      }
     }
 
-    // 2. ตรวจสอบจาก LocalStorage ที่บันทึกผ่าน UI
-    try {
-      const raw = localStorage.getItem('work_tracker_firebase_config');
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch (e) {
-      console.warn('Invalid stored Firebase config', e);
-      return null;
+    if (cfg) {
+      // รับประกันว่า databaseURL ต้องชี้ไปที่เซิร์ฟเวอร์สิงคโปร์ของโปรเจกต์นี้เสมอ แม้ใน config จะไม่ได้ระบุมา
+      if (!cfg.databaseURL || cfg.databaseURL.indexOf('firebaseio.com') !== -1) {
+        cfg.databaseURL = 'https://my-work-tracker-ff365-default-rtdb.asia-southeast1.firebasedatabase.app';
+      }
     }
+
+    return cfg;
   }
 
   function initFirebase() {
@@ -567,13 +575,24 @@
         updatedAt: firebase.database.ServerValue.TIMESTAMP
       };
 
+      // Safety timeout: ถ้าผ่านไป 8 วินาทีแล้วฐานข้อมูลยังไม่ตอบสนอง ให้แจ้งเตือนเรื่อง databaseURL
+      const timeoutId = setTimeout(() => {
+        if (state.cloudSyncStatus === 'syncing') {
+          console.warn('Firebase set() timed out - databaseURL might be incorrect');
+          setCloudStatus('error', 'เชื่อมต่อฐานข้อมูลไม่สำเร็จ (อาจใส่ databaseURL ผิด หรือยังไม่ได้กด Create Database)');
+          showToast('⚠️ เชื่อมต่อ Realtime Database ไม่สำเร็จ กรุณาตรวจสอบ URL ใน Firebase Console');
+        }
+      }, 8000);
+
       state.firebaseDb.ref('users/' + uid + '/data').set(payload)
         .then(() => {
+          clearTimeout(timeoutId);
           setCloudStatus('online');
           state.lastSyncTimestamp = new Date();
           updateSyncTimestampDisplay();
         })
         .catch((err) => {
+          clearTimeout(timeoutId);
           console.error('Cloud save failed:', err);
           setCloudStatus('error', err.message);
         });
