@@ -52,6 +52,7 @@
   let state = {
     labels: [],
     tasks: {}, // Key: "YYYY-MM-DD" => Array of task objects { id, title, desc, done, tags: [labelId, ...] }
+    holidays: {}, // Key: "YYYY-MM-DD" => true (กำหนดเป็นวันหยุด)
     currentDate: new Date(),
     viewYear: new Date().getFullYear(),
     viewMonth: new Date().getMonth(),
@@ -79,7 +80,8 @@
     firebaseApp: null,
     firebaseDb: null,
     firebaseAuth: null,
-    lastSyncTimestamp: null
+    lastSyncTimestamp: null,
+    undoStack: []
   };
 
   // --- Storage Helper Functions ---
@@ -99,6 +101,9 @@
       const savedColorblind = localStorage.getItem('work_tracker_colorblind');
       state.colorblindMode = savedColorblind !== null ? JSON.parse(savedColorblind) : true;
 
+      const savedHolidays = localStorage.getItem('work_tracker_holidays');
+      state.holidays = savedHolidays ? JSON.parse(savedHolidays) : {};
+
       const savedTheme = localStorage.getItem('work_tracker_theme');
       state.theme = savedTheme || 'dark';
     } catch (e) {
@@ -108,6 +113,85 @@
     }
   }
 
+  // ============================================================
+  // Undo System (บันทึกประวัติการกระทำ & ย้อนกลับด้วย Ctrl+Z หรือปุ่ม Undo)
+  // ============================================================
+  let undoTimerId = null;
+
+  function recordUndo(desc) {
+    if (!state.undoStack) state.undoStack = [];
+    state.undoStack.push({
+      desc: desc || 'ทำรายการแล้ว',
+      tasks: JSON.parse(JSON.stringify(state.tasks)),
+      holidays: JSON.parse(JSON.stringify(state.holidays || {}))
+    });
+
+    if (state.undoStack.length > 30) {
+      state.undoStack.shift();
+    }
+
+    showUndoPopup(desc);
+  }
+
+  function showUndoPopup(desc) {
+    if (!el.undoPopup) return;
+    if (el.undoActionDesc) {
+      el.undoActionDesc.textContent = desc || 'ทำรายการแล้ว';
+    }
+
+    if (undoTimerId) clearTimeout(undoTimerId);
+
+    if (el.undoTimerProgress) {
+      el.undoTimerProgress.style.transition = 'none';
+      el.undoTimerProgress.style.width = '100%';
+      void el.undoTimerProgress.offsetWidth;
+      el.undoTimerProgress.style.transition = 'width 6s linear';
+      el.undoTimerProgress.style.width = '0%';
+    }
+
+    el.undoPopup.classList.add('active');
+
+    undoTimerId = setTimeout(() => {
+      hideUndoPopup();
+    }, 6000);
+  }
+
+  function hideUndoPopup() {
+    if (undoTimerId) {
+      clearTimeout(undoTimerId);
+      undoTimerId = null;
+    }
+    if (el.undoPopup) {
+      el.undoPopup.classList.remove('active');
+    }
+  }
+
+  function performUndo() {
+    if (!state.undoStack || state.undoStack.length === 0) {
+      showToast('ไม่มีรายการย้อนกลับ');
+      return;
+    }
+
+    hideUndoPopup();
+
+    const previous = state.undoStack.pop();
+    state.tasks = previous.tasks || {};
+    if (previous.holidays !== undefined) {
+      state.holidays = previous.holidays;
+      saveHolidays();
+    }
+
+    saveTasks();
+    renderCalendar();
+    renderStats();
+    if (state.activeModalDate) {
+      renderDayTasks();
+      updateHolidayButtonUI();
+    }
+
+    showToast(`↩️ ย้อนกลับ: ${previous.desc} เรียบร้อยแล้ว`);
+  }
+
   function saveLabels() {
     localStorage.setItem('work_tracker_labels', JSON.stringify(state.labels));
     pushToCloud();
@@ -115,6 +199,11 @@
 
   function saveTasks() {
     localStorage.setItem('work_tracker_tasks', JSON.stringify(state.tasks));
+    pushToCloud();
+  }
+
+  function saveHolidays() {
+    localStorage.setItem('work_tracker_holidays', JSON.stringify(state.holidays || {}));
     pushToCloud();
   }
 
@@ -205,6 +294,9 @@
     dayTaskList: document.getElementById('dayTaskList'),
     dayTasksCount: document.getElementById('dayTasksCount'),
     btnCopyDayToTomorrow: document.getElementById('btnCopyDayToTomorrow'),
+    btnToggleHoliday: document.getElementById('btnToggleHoliday'),
+    holidayBtnIcon: document.getElementById('holidayBtnIcon'),
+    holidayBtnText: document.getElementById('holidayBtnText'),
 
     // Edit Task Modal
     editTaskModal: document.getElementById('editTaskModal'),
@@ -303,7 +395,14 @@
     authErrorMsg: document.getElementById('authErrorMsg'),
     firebaseConfigTextarea: document.getElementById('firebaseConfigTextarea'),
     btnSaveFirebaseConfig: document.getElementById('btnSaveFirebaseConfig'),
-    btnResetFirebaseConfig: document.getElementById('btnResetFirebaseConfig')
+    btnResetFirebaseConfig: document.getElementById('btnResetFirebaseConfig'),
+
+    // Undo Elements
+    undoPopup: document.getElementById('undoPopup'),
+    undoActionDesc: document.getElementById('undoActionDesc'),
+    btnUndoAction: document.getElementById('btnUndoAction'),
+    btnCloseUndoPopup: document.getElementById('btnCloseUndoPopup'),
+    undoTimerProgress: document.getElementById('undoTimerProgress')
   };
 
   let calendarDragData = null;
@@ -537,10 +636,12 @@
       try {
         if (val.tasks) state.tasks = val.tasks;
         if (val.labels) state.labels = val.labels;
+        if (val.holidays) state.holidays = val.holidays;
         if (val.colorblindMode !== undefined) state.colorblindMode = val.colorblindMode;
 
         localStorage.setItem('work_tracker_tasks', JSON.stringify(state.tasks));
         localStorage.setItem('work_tracker_labels', JSON.stringify(state.labels));
+        localStorage.setItem('work_tracker_holidays', JSON.stringify(state.holidays || {}));
         localStorage.setItem('work_tracker_colorblind', JSON.stringify(state.colorblindMode));
 
         state.lastSyncTimestamp = new Date(val.updatedAt || Date.now());
@@ -571,6 +672,7 @@
       const payload = {
         tasks: state.tasks,
         labels: state.labels,
+        holidays: state.holidays || {},
         colorblindMode: state.colorblindMode,
         updatedAt: firebase.database.ServerValue.TIMESTAMP
       };
@@ -927,11 +1029,13 @@
     const dateKey = formatDateKey(date);
     const tasks = state.tasks[dateKey] || [];
     const isToday = dateKey === todayKey;
+    const isHoliday = !!state.holidays[dateKey];
 
     const cell = document.createElement('div');
     cell.className = 'day-cell';
     if (isOtherMonth) cell.classList.add('other-month');
     if (isToday) cell.classList.add('is-today');
+    if (isHoliday) cell.classList.add('is-holiday');
 
     // Filter check
     let filteredTasks = tasks;
@@ -957,6 +1061,14 @@
     numSpan.className = 'day-number';
     numSpan.textContent = date.getDate();
     header.appendChild(numSpan);
+
+    if (isHoliday) {
+      const holBadge = document.createElement('span');
+      holBadge.className = 'holiday-badge';
+      holBadge.title = 'วันหยุดพักผ่อน (คลิกขวาเพื่อสลับวันหยุด)';
+      holBadge.innerHTML = '🏖️ วันหยุด';
+      header.appendChild(holBadge);
+    }
 
     if (totalTasks > 0) {
       const badge = document.createElement('span');
@@ -1067,6 +1179,13 @@
       previewContainer.appendChild(more);
     }
 
+    if (filteredTasks.length === 0 && isHoliday) {
+      const holEmpty = document.createElement('div');
+      holEmpty.className = 'holiday-empty-banner';
+      holEmpty.textContent = '🏖️ วันหยุดพักผ่อน';
+      cell.appendChild(holEmpty);
+    }
+
     cell.appendChild(previewContainer);
 
     // Cell Dragover & Drop events for receiving dragged tasks
@@ -1090,6 +1209,12 @@
         cell.classList.remove('day-cell-drop-target');
         promptCalendarTaskDrop(calendarDragData, dateKey);
       }
+    });
+
+    // Right-click on cell quickly toggles holiday!
+    cell.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      toggleHoliday(dateKey);
     });
 
     // Click handler to open day detail
@@ -1194,6 +1319,8 @@
     if (!pendingDropData) return;
     const { dragData, fromTasks, toDateKey } = pendingDropData;
 
+    recordUndo('คัดลอกงานไปวันใหม่');
+
     if (!state.tasks[toDateKey]) {
       state.tasks[toDateKey] = [];
     }
@@ -1247,6 +1374,8 @@
     const pendingTasks = fromTasks.filter(t => !t.done);
     if (pendingTasks.length === 0) return;
 
+    recordUndo('คัดลอกเฉพาะงานค้างไปวันใหม่');
+
     if (!state.tasks[toDateKey]) {
       state.tasks[toDateKey] = [];
     }
@@ -1275,6 +1404,8 @@
     if (!pendingDropData) return;
     const { dragData, fromDateKey, fromTasks, toDateKey } = pendingDropData;
     const toDate = parseDateKey(toDateKey);
+
+    recordUndo('ย้ายงานไปวันใหม่');
 
     if (!state.tasks[toDateKey]) {
       state.tasks[toDateKey] = [];
@@ -1325,6 +1456,47 @@
     el.tagFilterSelect.value = state.labels.some(l => l.id === currentVal) ? currentVal : 'all';
   }
 
+  // --- Holiday Management ---
+  function updateHolidayButtonUI() {
+    if (!state.activeModalDate) return;
+    const isHoliday = !!state.holidays[state.activeModalDate];
+    if (el.btnToggleHoliday) {
+      el.btnToggleHoliday.classList.toggle('active', isHoliday);
+      if (el.holidayBtnText) {
+        el.holidayBtnText.textContent = isHoliday ? 'เป็นวันหยุดแล้ว (คลิกเพื่อยกเลิก)' : 'กำหนดเป็นวันหยุด';
+      }
+      if (el.holidayBtnIcon) {
+        el.holidayBtnIcon.textContent = isHoliday ? '✅🏖️' : '🏖️';
+      }
+    }
+  }
+
+  function toggleHoliday(dateKey) {
+    if (!dateKey) dateKey = state.activeModalDate;
+    if (!dateKey) return;
+
+    const wasHoliday = !!state.holidays[dateKey];
+    const date = parseDateKey(dateKey);
+    const dateStr = formatThaiShortDate(date);
+
+    recordUndo(wasHoliday ? `ยกเลิกวันหยุดวันที่ ${dateStr}` : `กำหนดให้ ${dateStr} เป็นวันหยุด`);
+
+    if (wasHoliday) {
+      delete state.holidays[dateKey];
+      showToast(`ยกเลิกวันหยุดวันที่ ${dateStr} แล้ว`);
+    } else {
+      state.holidays[dateKey] = true;
+      showToast(`🏖️ กำหนดให้วันที่ ${dateStr} เป็นวันหยุดแล้ว`);
+    }
+
+    saveHolidays();
+    updateHolidayButtonUI();
+    renderCalendar();
+    if (state.activeModalDate) {
+      renderDayTasks();
+    }
+  }
+
   // --- Day Detail Modal ---
   function openDayModal(dateKey) {
     state.activeModalDate = dateKey;
@@ -1336,6 +1508,7 @@
     el.taskTitleInput.value = '';
     el.taskDescInput.value = '';
 
+    updateHolidayButtonUI();
     renderDayTasks();
     el.dayModal.classList.add('active');
   }
@@ -1356,7 +1529,9 @@
     const pendingCount = total - doneCount;
     const percent = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
-    el.modalDateSubtitle.textContent = `${total} งาน (เสร็จแล้ว ${doneCount} งาน, เหลือ ${pendingCount} งาน)`;
+    const isHoliday = !!state.holidays[dateKey];
+    const holidayPrefix = isHoliday ? '🏖️ วันหยุด | ' : '';
+    el.modalDateSubtitle.textContent = `${holidayPrefix}${total} งาน (เสร็จแล้ว ${doneCount} งาน, เหลือ ${pendingCount} งาน)`;
     el.dayTasksCount.textContent = total;
 
     // Update Day Sidebar Stats
@@ -1415,6 +1590,7 @@
       checkbox.checked = !!task.done;
       checkbox.title = task.done ? 'คลิกเพื่อเปลี่ยนเป็นยังไม่เสร็จ' : 'คลิกเมื่อสำเร็จงานนี้';
       checkbox.addEventListener('change', () => {
+        recordUndo(checkbox.checked ? `ติ๊กสำเร็จงาน "${task.title}"` : `ยกเลิกสำเร็จงาน "${task.title}"`);
         task.done = checkbox.checked;
         saveTasks();
         renderDayTasks();
@@ -1599,6 +1775,8 @@
     const toIdx = list.findIndex(t => t.id === targetId);
     if (fromIdx === -1 || toIdx === -1) return;
 
+    recordUndo('จัดลำดับงาน');
+
     const [movedItem] = list.splice(fromIdx, 1);
     let newIdx = list.findIndex(t => t.id === targetId);
     if (!insertBefore) {
@@ -1621,6 +1799,8 @@
     if (curIdx === -1) return;
     const targetIdx = curIdx + offset;
     if (targetIdx < 0 || targetIdx >= list.length) return;
+
+    recordUndo('สลับลำดับงาน');
 
     const [item] = list.splice(curIdx, 1);
     list.splice(targetIdx, 0, item);
@@ -1681,6 +1861,8 @@
     const dateKey = state.activeModalDate;
     if (!dateKey) return;
 
+    recordUndo(`เพิ่มงาน "${title}"`);
+
     if (!state.tasks[dateKey]) {
       state.tasks[dateKey] = [];
     }
@@ -1709,6 +1891,9 @@
 
   function deleteTask(taskId, dateKey) {
     if (!state.tasks[dateKey]) return;
+    const taskToDelete = state.tasks[dateKey].find(t => t.id === taskId);
+    recordUndo(`ลบงาน "${taskToDelete ? taskToDelete.title : ''}"`);
+
     state.tasks[dateKey] = state.tasks[dateKey].filter(t => t.id !== taskId);
     if (state.tasks[dateKey].length === 0) {
       delete state.tasks[dateKey];
@@ -1743,6 +1928,7 @@
 
     const task = state.tasks[dateKey].find(t => t.id === taskId);
     if (task) {
+      recordUndo(`แก้ไขงาน "${title}"`);
       task.title = title;
       task.desc = desc;
       saveTasks();
@@ -2032,6 +2218,7 @@
       exportedAt: new Date().toISOString(),
       labels: state.labels,
       tasks: state.tasks,
+      holidays: state.holidays || {},
       colorblindMode: state.colorblindMode,
       theme: state.theme
     };
@@ -2059,11 +2246,13 @@
         if (data.labels && data.tasks) {
           state.labels = data.labels;
           state.tasks = data.tasks;
+          if (data.holidays) state.holidays = data.holidays;
           if (data.colorblindMode !== undefined) state.colorblindMode = data.colorblindMode;
           if (data.theme) state.theme = data.theme;
 
           saveLabels();
           saveTasks();
+          saveHolidays();
           saveSettings();
           applyTheme();
           renderCalendar();
@@ -2129,6 +2318,13 @@
         const activeDateKey = state.activeModalDate;
         closeDayModal();
         promptCalendarTaskDrop({ type: 'all_day', fromDateKey: activeDateKey }, tomorrowKey);
+      });
+    }
+
+    // Toggle Holiday button
+    if (el.btnToggleHoliday) {
+      el.btnToggleHoliday.addEventListener('click', () => {
+        toggleHoliday(state.activeModalDate);
       });
     }
 
@@ -2235,6 +2431,10 @@
     if (el.btnSaveFirebaseConfig) el.btnSaveFirebaseConfig.addEventListener('click', handleSaveFirebaseConfig);
     if (el.btnResetFirebaseConfig) el.btnResetFirebaseConfig.addEventListener('click', handleResetFirebaseConfig);
 
+    // Undo Popup controls
+    if (el.btnUndoAction) el.btnUndoAction.addEventListener('click', performUndo);
+    if (el.btnCloseUndoPopup) el.btnCloseUndoPopup.addEventListener('click', hideUndoPopup);
+
     // Close modals on clicking backdrop
     window.addEventListener('click', (e) => {
       if (e.target === el.dayModal) closeDayModal();
@@ -2245,8 +2445,20 @@
       if (e.target === el.cloudSyncModal) closeCloudSyncModal();
     });
 
-    // Keyboard escape to close modals
+    // Keyboard shortcuts (Escape to close, Ctrl+Z to Undo)
     window.addEventListener('keydown', (e) => {
+      // Ctrl+Z or Cmd+Z to Undo
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        const activeTag = document.activeElement ? document.activeElement.tagName : '';
+        // If actively typing inside an input/textarea, let native text undo work
+        if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') {
+          return;
+        }
+        e.preventDefault();
+        performUndo();
+        return;
+      }
+
       if (e.key === 'Escape') {
         if (el.labelPickerModal && el.labelPickerModal.classList.contains('active')) closeLabelPicker();
         else if (el.editTaskModal && el.editTaskModal.classList.contains('active')) closeEditTaskModal();

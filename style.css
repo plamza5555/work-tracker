@@ -372,6 +372,79 @@ body {
   border-left: 3px solid var(--success-color);
 }
 
+/* Holiday Styles */
+.day-cell.is-holiday {
+  background-color: rgba(239, 68, 68, 0.06);
+  border-color: rgba(239, 68, 68, 0.3);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(239, 68, 68, 0.03),
+    rgba(239, 68, 68, 0.03) 8px,
+    transparent 8px,
+    transparent 16px
+  );
+}
+
+.day-cell.is-holiday .day-number {
+  color: #f87171;
+}
+
+body.theme-light .day-cell.is-holiday {
+  background-color: rgba(239, 68, 68, 0.06);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.holiday-badge {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.holiday-empty-banner {
+  margin-top: auto;
+  margin-bottom: auto;
+  text-align: center;
+  padding: 6px 4px;
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: 4px;
+  border: 1px dashed rgba(239, 68, 68, 0.25);
+}
+
+.btn-holiday-toggle {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #f87171;
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all var(--transition);
+}
+
+.btn-holiday-toggle:hover {
+  background-color: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+}
+
+.btn-holiday-toggle.active {
+  background-color: #ef4444;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+
 .day-cell-header {
   display: flex;
   align-items: center;
@@ -1602,6 +1675,128 @@ body.theme-light .day-progress-bar-bg {
 }
 
 /* Toast Notifications */
+/* ============================================================
+   Floating Bottom-Left Undo Popup
+   ============================================================ */
+.undo-popup {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  background-color: #22272b;
+  color: #dee4ea;
+  border: 1px solid #38414a;
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-width: 420px;
+  min-width: 300px;
+  transform: translateY(120%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+}
+
+.undo-popup.active {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+body.theme-light .undo-popup {
+  background-color: #ffffff;
+  color: #172b4d;
+  border-color: #dcdfe4;
+  box-shadow: 0 10px 25px -5px rgba(9, 30, 66, 0.25);
+}
+
+.undo-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+}
+
+.undo-icon {
+  font-size: 1.15rem;
+  flex-shrink: 0;
+}
+
+.undo-text-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.undo-action-desc {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.undo-shortcut-hint {
+  font-size: 0.74rem;
+  color: #94a3b8;
+}
+
+body.theme-light .undo-shortcut-hint {
+  color: #64748b;
+}
+
+.btn-undo {
+  background-color: #3b82f6;
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--transition);
+  flex-shrink: 0;
+}
+
+.btn-undo:hover {
+  background-color: #2563eb;
+}
+
+.undo-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  transition: color var(--transition);
+  flex-shrink: 0;
+}
+
+.undo-close-btn:hover {
+  color: var(--text-primary);
+}
+
+.undo-timer-bar {
+  height: 3px;
+  background-color: rgba(255, 255, 255, 0.08);
+  width: 100%;
+}
+
+.undo-timer-fill {
+  height: 100%;
+  background-color: #38bdf8;
+  width: 100%;
+  transition: width 5s linear;
+}
+
 .toast-container {
   position: fixed;
   bottom: 24px;

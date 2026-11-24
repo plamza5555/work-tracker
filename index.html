@@ -125,6 +125,12 @@
           </div>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
+          <!-- Holiday Toggle Button -->
+          <button type="button" id="btnToggleHoliday" class="btn btn-sm btn-holiday-toggle" title="กำหนดให้วันนี้เป็นวันหยุด หรือยกเลิกวันหยุด">
+            <span id="holidayBtnIcon">🏖️</span>
+            <span id="holidayBtnText">กำหนดเป็นวันหยุด</span>
+          </button>
+
           <button type="button" id="btnCopyDayToTomorrow" class="btn btn-sm btn-outline" title="คัดลอกงานทั้งหมดของวันนี้ไปทำต่อในวันพรุ่งนี้">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
             <span>ทำต่อวันพรุ่งนี้</span>
@@ -553,6 +559,24 @@
         </div>
 
       </div>
+    </div>
+  </div>
+
+  <!-- Floating Bottom-Left Undo Popup -->
+  <div id="undoPopup" class="undo-popup">
+    <div class="undo-content">
+      <span class="undo-icon">↩️</span>
+      <div class="undo-text-group">
+        <span id="undoActionDesc" class="undo-action-desc">ทำรายการแล้ว</span>
+        <span class="undo-shortcut-hint">กด Ctrl + Z เพื่อย้อนกลับ</span>
+      </div>
+      <button type="button" id="btnUndoAction" class="btn btn-undo" title="ย้อนกลับการกระทำล่าสุด">
+        ย้อนกลับ
+      </button>
+      <button type="button" id="btnCloseUndoPopup" class="undo-close-btn" title="ปิด">&times;</button>
+    </div>
+    <div class="undo-timer-bar">
+      <div id="undoTimerProgress" class="undo-timer-fill"></div>
     </div>
   </div>
 
