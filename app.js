@@ -2119,11 +2119,43 @@
     return driveFile;
   }
 
+  async function findExistingDriveFile(fileName, accessToken) {
+    if (!accessToken || !fileName) return null;
+    const folderId = window.GOOGLE_DRIVE_FOLDER_ID || '1xF51wwGdvrCjMzzYC3CR84xMr5VZQC9K';
+    const cleanName = fileName.replace(/'/g, "\\'");
+    const q = `'${folderId}' in parents and name = '${cleanName}' and trashed = false`;
+    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,webViewLink,thumbnailLink,size)&pageSize=1`;
+
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.files && data.files.length > 0) {
+        return data.files[0];
+      }
+    } catch (e) {
+      console.warn('Check existing Drive file error', e);
+    }
+    return null;
+  }
+
   async function handleFilesSelected(files, targetArray, renderCallback) {
     if (!files || files.length === 0) return;
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+
+      // 1. ตรวจสอบการแนบไฟล์ซ้ำในงานเดียวกัน
+      const existsInTask = targetArray.some(existing => existing.name === file.name);
+      if (existsInTask) {
+        showToast(`⚠️ ไฟล์ "${file.name}" มีอยู่ในรายการแล้ว (ข้ามการแนบซ้ำ)`, 'info');
+        continue;
+      }
+
       const attId = 'att-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
       const isImg = file.type && file.type.startsWith('image/');
 
@@ -2159,16 +2191,26 @@
         console.warn('File read error', err);
       }
 
-      // Upload to Google Drive if access token available
+      // Upload to Google Drive if access token available (with duplicate check on Drive)
       if (state.googleAccessToken) {
         try {
-          const driveData = await uploadFileToGoogleDrive(file, state.googleAccessToken);
-          newAtt.driveId = driveData.id;
-          newAtt.driveLink = driveData.webViewLink;
-          newAtt.driveThumbnail = driveData.thumbnailLink;
-          newAtt.uploadedToDrive = true;
-          newAtt.isUploading = false;
-          showToast(`☁️ อัปโหลด "${file.name}" ขึ้น Google Drive เรียบร้อย`);
+          const existingDriveFile = await findExistingDriveFile(file.name, state.googleAccessToken);
+          if (existingDriveFile) {
+            newAtt.driveId = existingDriveFile.id;
+            newAtt.driveLink = existingDriveFile.webViewLink;
+            newAtt.driveThumbnail = existingDriveFile.thumbnailLink;
+            newAtt.uploadedToDrive = true;
+            newAtt.isUploading = false;
+            showToast(`☁️ พบไฟล์ "${file.name}" บน Google Drive แล้ว (เชื่อมโยงทันที ไม่ต้องอัปโหลดซ้ำ)`);
+          } else {
+            const driveData = await uploadFileToGoogleDrive(file, state.googleAccessToken);
+            newAtt.driveId = driveData.id;
+            newAtt.driveLink = driveData.webViewLink;
+            newAtt.driveThumbnail = driveData.thumbnailLink;
+            newAtt.uploadedToDrive = true;
+            newAtt.isUploading = false;
+            showToast(`🎉 อัปโหลด "${file.name}" ขึ้น Google Drive เรียบร้อย!`);
+          }
         } catch (driveErr) {
           console.warn('Google Drive upload failed, file stored locally', driveErr);
           newAtt.isUploading = false;
@@ -2434,6 +2476,22 @@
     showToast(`☁️ กำลังอัปโหลด "${att.name}" ขึ้น Google Drive...`, 'info');
 
     try {
+      // ตรวจสอบก่อนว่าไฟล์นี้มีอยู่บน Google Drive แล้วหรือไม่ เพื่อป้องกันการอัปโหลดซ้ำ
+      const existing = await findExistingDriveFile(att.name, state.googleAccessToken);
+      if (existing) {
+        att.driveId = existing.id;
+        att.driveLink = existing.webViewLink;
+        att.driveThumbnail = existing.thumbnailLink;
+        att.uploadedToDrive = true;
+        att.isUploading = false;
+        saveTasks();
+        renderDayTasks();
+        renderCalendar();
+        if (renderCallback) renderCallback();
+        showToast(`☁️ พบไฟล์ "${att.name}" บน Google Drive แล้ว (เชื่อมโยงให้อัตโนมัติ ไม่เปลืองพื้นที่ซ้ำ)`);
+        return;
+      }
+
       const blob = dataUrlToBlob(fileData);
       const fileObj = new File([blob], att.name, { type: att.type });
       const driveData = await uploadFileToGoogleDrive(fileObj, state.googleAccessToken);
