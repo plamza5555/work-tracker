@@ -17,7 +17,7 @@
         <span class="logo-icon">📅</span>
         <div class="logo-text">
           <h1>Work Tracker</h1>
-          <span class="subtitle">บันทึกงานรายวัน</span>
+          <span class="subtitle">บันทึกงานรายวัน & จัดการ Tags สไตล์ Trello</span>
         </div>
       </div>
     </div>
@@ -47,6 +47,15 @@
       <button id="btnManageLabels" class="btn btn-outline" title="จัดการป้ายกำกับทั้งหมด">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
         <span>จัดการ Tags</span>
+      </button>
+
+      <!-- Cloud Sync Button -->
+      <button id="btnCloudSync" class="btn btn-cloud-pill" title="ซิงก์ข้อมูลข้ามเครื่อง (Cloud Sync)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+        </svg>
+        <span id="cloudStatusText">ซิงก์ Cloud</span>
+        <span id="cloudStatusDot" class="status-dot dot-offline"></span>
       </button>
 
       <button id="btnBackup" class="btn btn-icon" title="สำรอง / กู้คืนข้อมูล (Export/Import)">
@@ -156,15 +165,8 @@
             </form>
           </div>
 
-          <!-- Day Progress & Quick Filters -->
-          <div class="card day-stats-card">
-            <div class="day-stats-header">
-              <span class="card-subtitle">ความคืบหน้าวันนี้</span>
-              <span id="dayProgressPercent" class="stat-percent text-success">0%</span>
-            </div>
-            <div class="progress-bar-bg">
-              <div id="dayProgressBar" class="progress-bar-fill" style="width: 0%"></div>
-            </div>
+          <!-- Quick Filters (Moved progress bar to right header) -->
+          <div class="card day-filters-card">
             <div class="tasks-quick-filters">
               <button class="btn-filter-tab active" data-filter="all">ทั้งหมด (<span id="countTabAll">0</span>)</button>
               <button class="btn-filter-tab" data-filter="pending">ยังไม่เสร็จ (<span id="countTabPending">0</span>)</button>
@@ -178,7 +180,17 @@
           <div class="tasks-section">
             <div class="tasks-header">
               <h3>รายการงานที่บันทึก (<span id="dayTasksCount">0</span> งาน)</h3>
-              <span class="tasks-hint">🖐️ คลิกลากที่ไอคอนหน้างานเพื่อจัดลำดับ / ติ๊กถูกเมื่องานเสร็จ</span>
+              
+              <!-- Day Progress Bar moved here -->
+              <div class="day-progress-header-box">
+                <div class="day-stats-header">
+                  <span class="card-subtitle">ความคืบหน้าวันนี้</span>
+                  <span id="dayProgressPercent" class="stat-percent text-success">0%</span>
+                </div>
+                <div class="progress-bar-bg day-progress-bar-bg">
+                  <div id="dayProgressBar" class="progress-bar-fill" style="width: 0%"></div>
+                </div>
+              </div>
             </div>
 
             <div id="dayTaskList" class="task-list">
@@ -382,8 +394,162 @@
     </div>
   </div>
 
+  <!-- Cloud Sync Modal -->
+  <div id="cloudSyncModal" class="modal-backdrop">
+    <div class="modal-box modal-md">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+          </svg>
+          <h3>ซิงก์ข้อมูลข้ามเครื่อง (Cloud Sync)</h3>
+        </div>
+        <button class="modal-close-btn" id="btnCloseCloudSyncModal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Live Connection Status Card -->
+        <div id="cloudStatusBanner" class="cloud-status-banner banner-local">
+          <div class="status-icon-indicator" id="cloudStatusIcon">🟡</div>
+          <div class="status-info">
+            <h4 id="cloudStatusTitle">โหมดในเครื่อง (Local Storage)</h4>
+            <p id="cloudStatusSubtitle">บันทึกข้อมูลในเครื่องนี้เท่านั้น ยังไม่ได้เชื่อมต่อ Cloud</p>
+          </div>
+        </div>
+
+        <!-- Sync Nav Tabs -->
+        <div class="sync-tab-nav">
+          <button type="button" class="btn-sync-tab active" id="tabBtnAccount">🔑 เข้าสู่ระบบ / ซิงก์งาน</button>
+          <button type="button" class="btn-sync-tab" id="tabBtnConfig">⚙️ ตั้งค่า Firebase</button>
+        </div>
+
+        <!-- Panel 1: Account / Sync Panel -->
+        <div id="panelAccount" class="sync-panel active">
+          <!-- Logged In View -->
+          <div id="viewLoggedIn" class="auth-box" style="display: none;">
+            <div class="user-profile-badge">
+              <span class="user-avatar">👤</span>
+              <div class="user-details">
+                <span class="user-email-txt" id="userEmailDisplay">user@example.com</span>
+                <span class="sync-timestamp" id="lastSyncTimeTxt">ซิงก์ล่าสุด: ตรวจสอบสถานะอยู่...</span>
+              </div>
+            </div>
+
+            <div class="sync-action-buttons">
+              <button type="button" id="btnForceSyncNow" class="btn btn-primary btn-block">
+                🔄 ซิงก์งานทันที (Force Sync)
+              </button>
+              <button type="button" id="btnLogoutCloud" class="btn btn-outline btn-block" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.4); margin-top: 8px;">
+                🚪 ออกจากระบบ (กลับสู่โหมดในเครื่อง)
+              </button>
+            </div>
+          </div>
+
+          <!-- Logged Out View -->
+          <div id="viewLoggedOut" class="auth-box">
+            <p class="sync-subtext">เข้าสู่ระบบด้วย Email หรือ รหัส PIN ด่วน เพื่อดึงข้อมูลงานมาไว้บนมือถือและคอมพิวเตอร์ของคุณอัตโนมัติ</p>
+
+            <div class="auth-mode-selector">
+              <button type="button" class="btn-mode-tab active" id="btnModePIN">รหัส PIN ด่วน (แนะนำ)</button>
+              <button type="button" class="btn-mode-tab" id="btnModeLogin">เข้าสู่ระบบ (Email)</button>
+              <button type="button" class="btn-mode-tab" id="btnModeRegister">สมัครใหม่</button>
+            </div>
+
+            <!-- PIN Form Group (Default) -->
+            <div id="formPINGroup" style="margin-bottom: 12px;">
+              <div class="form-group">
+                <label class="form-label">รหัส Sync PIN ส่วนตัว (เช่น เบอร์โทร หรือเลขเฉพาะตัวคุณ):</label>
+                <input type="text" id="cloudPINInput" class="form-input" placeholder="เช่น my-secret-pin-8899" value="">
+                <span class="field-hint" style="color: var(--text-muted); font-size: 0.8rem; margin-top: 4px; display: block;">
+                  💡 ทุกอุปกรณ์ที่ใส่รหัส PIN เดียวกันนี้ จะเห็นงานและซิงก์ตรงกันอัตโนมัติทันที
+                </span>
+              </div>
+            </div>
+
+            <!-- Email / Password Form (Hidden initially) -->
+            <div id="formEmailPasswordGroup" style="display: none;">
+              <div class="form-group" style="margin-bottom: 10px;">
+                <label class="form-label">อีเมล (Email):</label>
+                <input type="email" id="cloudEmailInput" class="form-input" placeholder="you@example.com" autocomplete="email">
+              </div>
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label class="form-label">รหัสผ่าน (Password):</label>
+                <input type="password" id="cloudPasswordInput" class="form-input" placeholder="อย่างน้อย 6 ตัวอักษร" autocomplete="current-password">
+              </div>
+            </div>
+
+            <!-- Upload local tasks checkbox -->
+            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 0.88rem; cursor: pointer;">
+              <input type="checkbox" id="chkUploadLocalTasks" checked style="width: 16px; height: 16px; cursor: pointer;">
+              <span>นำงานปัจจุบันที่มีในเครื่องนี้ ขึ้นไปบันทึกบน Cloud ด้วย</span>
+            </label>
+
+            <button type="button" id="btnSubmitAuth" class="btn btn-primary btn-block">
+              🚀 เริ่มต้นซิงก์ข้อมูล
+            </button>
+
+            <div id="authErrorMsg" class="auth-error-msg" style="display: none;"></div>
+          </div>
+        </div>
+
+        <!-- Panel 2: Firebase Settings & Guide -->
+        <div id="panelConfig" class="sync-panel" style="display: none;">
+          <div class="config-guide-box">
+            <h4 style="margin-bottom: 6px;">⚙️ เชื่อมต่อ Firebase Project ของคุณ (ฟรีตลอดชีพ)</h4>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 10px;">
+              วางโค้ด <code style="color: #60a5fa; background: rgba(96, 165, 250, 0.1); padding: 2px 6px; border-radius: 4px;">firebaseConfig</code> ที่ได้จาก Google Firebase Console เพื่อเปิดระบบคลาวด์ของคุณเอง ปลอดภัย 100%
+            </p>
+
+            <div class="form-group" style="margin-bottom: 10px;">
+              <label class="form-label">Firebase Configuration (JSON / Object):</label>
+              <textarea id="firebaseConfigTextarea" class="form-textarea" rows="6" placeholder='{
+  "apiKey": "AIzaSy...",
+  "authDomain": "your-app.firebaseapp.com",
+  "databaseURL": "https://your-app-default-rtdb.firebaseio.com",
+  "projectId": "your-app",
+  "storageBucket": "your-app.appspot.com",
+  "messagingSenderId": "...",
+  "appId": "..."
+}' style="font-family: monospace; font-size: 0.8rem;"></textarea>
+            </div>
+
+            <div style="display: flex; gap: 10px; margin-bottom: 14px;">
+              <button type="button" id="btnSaveFirebaseConfig" class="btn btn-primary" style="flex: 1;">
+                💾 บันทึกการตั้งค่า Firebase
+              </button>
+              <button type="button" id="btnResetFirebaseConfig" class="btn btn-secondary">
+                ล้างค่า
+              </button>
+            </div>
+
+            <!-- Step by Step Setup Guide Accordion -->
+            <details class="setup-accordion">
+              <summary style="cursor: pointer; font-weight: 600; color: #38bdf8; padding: 6px 0;">📖 วิธีสร้าง Firebase ฟรีใน 3 นาที (คลิกดูขั้นตอน)</summary>
+              <div class="guide-steps" style="font-size: 0.84rem; color: var(--text-secondary); line-height: 1.6; margin-top: 8px;">
+                <ol style="padding-left: 20px; display: flex; flex-direction: column; gap: 6px;">
+                  <li>เปิดเว็บไซต์ <a href="https://console.firebase.google.com" target="_blank" rel="noopener" style="color: #3b82f6; text-decoration: underline;">console.firebase.google.com</a> แล้วล็อกอินด้วย Gmail</li>
+                  <li>กด <strong>"Add project"</strong> (สร้างโปรเจกต์) ตั้งชื่อ เช่น <code>my-work-tracker</code> แล้วกด Continue จนเสร็จ</li>
+                  <li>ที่เมนูซ้ายมือ เลือก <strong>Build > Realtime Database</strong> กด <strong>"Create Database"</strong> แล้วเลือก Start in <strong>Test mode</strong></li>
+                  <li>ที่เมนูซ้ายมือ เลือก <strong>Build > Authentication</strong> กด <strong>"Get started"</strong> เลือกเปิดใช้งาน <strong>Email/Password</strong> และ <strong>Anonymous</strong></li>
+                  <li>ไปที่ <strong>Project Settings (รูปเฟืองมุมซ้ายบน)</strong> เลื่อนลงมาที่ "Your apps" กดไอคอนเว็บ <code>&lt;/&gt;</code></li>
+                  <li>คัดลอกโค้ดในส่วน <code>const firebaseConfig = { ... }</code> นำเฉพาะก้อนปีกกา <code>{ ... }</code> มาวางในช่องด้านบนนี้ แล้วกด "บันทึกการตั้งค่า Firebase" ได้ทันที!</li>
+                </ol>
+              </div>
+            </details>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification Container -->
   <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Firebase SDK (Compat version for simple vanilla JS) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
   <script src="app.js"></script>
 </body>
