@@ -84,8 +84,25 @@
     undoStack: [],
     newTaskAttachments: [],
     editingTaskAttachments: [],
-    googleAccessToken: localStorage.getItem('work_tracker_gdrive_token') || sessionStorage.getItem('work_tracker_gdrive_token') || null
+    googleAccessToken: getValidGoogleToken()
   };
+
+  function getValidGoogleToken() {
+    try {
+      const token = localStorage.getItem('work_tracker_gdrive_token') || sessionStorage.getItem('work_tracker_gdrive_token');
+      const exp = parseInt(localStorage.getItem('work_tracker_gdrive_token_exp') || '0', 10);
+      if (!token) return null;
+      if (exp && Date.now() >= exp) {
+        localStorage.removeItem('work_tracker_gdrive_token');
+        localStorage.removeItem('work_tracker_gdrive_token_exp');
+        sessionStorage.removeItem('work_tracker_gdrive_token');
+        return null;
+      }
+      return token;
+    } catch (e) {
+      return null;
+    }
+  }
 
   // --- Storage Helper Functions ---
   function loadFromStorage() {
@@ -503,9 +520,7 @@
       state.firebaseAuth.getRedirectResult().then((result) => {
         if (result && result.user) {
           if (result.credential && result.credential.accessToken) {
-            state.googleAccessToken = result.credential.accessToken;
-            localStorage.setItem('work_tracker_gdrive_token', state.googleAccessToken);
-            sessionStorage.setItem('work_tracker_gdrive_token', state.googleAccessToken);
+            saveGoogleDriveToken(result.credential.accessToken);
           }
           showToast(`🎉 ยินดีต้อนรับ ${result.user.displayName || result.user.email}!`);
           pushToCloud(true);
@@ -792,9 +807,7 @@
     state.firebaseAuth.signInWithPopup(provider)
       .then((result) => {
         if (result.credential && result.credential.accessToken) {
-          state.googleAccessToken = result.credential.accessToken;
-          localStorage.setItem('work_tracker_gdrive_token', state.googleAccessToken);
-          sessionStorage.setItem('work_tracker_gdrive_token', state.googleAccessToken);
+          saveGoogleDriveToken(result.credential.accessToken);
         }
         updateDriveStatusUI();
         if (uploadLocal) {
@@ -914,10 +927,7 @@
   function handleLogoutCloud() {
     if (!state.firebaseAuth) return;
     state.firebaseAuth.signOut().then(() => {
-      state.googleAccessToken = null;
-      localStorage.removeItem('work_tracker_gdrive_token');
-      sessionStorage.removeItem('work_tracker_gdrive_token');
-      updateDriveStatusUI();
+      clearGoogleDriveToken();
       showToast('ออกจากระบบ Cloud แล้ว (กลับสู่โหมดในเครื่อง)');
     });
   }
@@ -2166,8 +2176,57 @@
     renderCalendar();
   }
 
+  function saveGoogleDriveToken(token) {
+    state.googleAccessToken = token;
+    const expiresAt = Date.now() + (3500 * 1000); // 58 minutes
+    localStorage.setItem('work_tracker_gdrive_token', token);
+    localStorage.setItem('work_tracker_gdrive_token_exp', expiresAt.toString());
+    sessionStorage.setItem('work_tracker_gdrive_token', token);
+    updateDriveStatusUI();
+  }
+
+  function clearGoogleDriveToken() {
+    state.googleAccessToken = null;
+    localStorage.removeItem('work_tracker_gdrive_token');
+    localStorage.removeItem('work_tracker_gdrive_token_exp');
+    sessionStorage.removeItem('work_tracker_gdrive_token');
+    updateDriveStatusUI();
+  }
+
+  async function requestGoogleDriveToken() {
+    clearGoogleDriveToken();
+
+    if (!state.firebaseAuth) {
+      openCloudSyncModal();
+      showToast('⚠️ กรุณาเข้าสู่ระบบ Firebase เพื่อเปิดสิทธิ์เชื่อมต่อ Drive', 'warning');
+      return null;
+    }
+
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.addScope('https://www.googleapis.com/auth/drive.file');
+    provider.setCustomParameters({ prompt: 'select_account' });
+
+    try {
+      showToast('🔑 กรุณาเลือกบัญชี Google ในหน้าต่างป๊อปอัปเพื่อเชื่อมต่อ Drive...', 'info');
+      const result = await state.firebaseAuth.signInWithPopup(provider);
+      if (result && result.credential && result.credential.accessToken) {
+        saveGoogleDriveToken(result.credential.accessToken);
+        showToast('🟢 เชื่อมต่อ Google Drive สำเร็จ!');
+        return result.credential.accessToken;
+      }
+    } catch (err) {
+      console.error('Google token request failed:', err);
+      showToast(`⚠️ ขอสิทธิ์ Google ไม่สำเร็จ: ${err.message}`, 'error');
+    }
+    return null;
+  }
+
   async function uploadFileToGoogleDrive(file, accessToken) {
-    if (!accessToken) throw new Error('No Google Access Token');
+    let token = accessToken || state.googleAccessToken;
+    if (!token) {
+      token = await requestGoogleDriveToken();
+      if (!token) throw new Error('No Google Access Token');
+    }
     const folderId = (window.GOOGLE_DRIVE_FOLDER_ID || '').trim();
 
     const metadata = {
@@ -2185,10 +2244,20 @@
     let res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,webContentLink,thumbnailLink', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${accessToken}`
+        'Authorization': `Bearer ${token}`
       },
       body: form
     });
+
+    // หาก Token หมดอายุหรือไม่ถูกต้อง (401 Unauthorized) ให้ขอสิทธิ์ใหม่ทันทีแล้วลองอัปโหลดอีกครั้ง
+    if (res.status === 401) {
+      console.warn('Google Drive token expired (401), requesting fresh token and retrying...');
+      const freshToken = await requestGoogleDriveToken();
+      if (freshToken) {
+        return await uploadFileToGoogleDrive(file, freshToken);
+      }
+      throw new Error('สิทธิ์ Google Drive หมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
+    }
 
     // หากอัปโหลดไม่สำเร็จเนื่องจากโฟลเดอร์ ID ไม่ถูกต้อง (404/403) ให้ลองอัปโหลดไปยังหน้าแรก (My Drive) สำรองทันที
     if (!res.ok && folderId) {
@@ -2200,7 +2269,7 @@
       res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,webContentLink,thumbnailLink', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${accessToken}`
+          'Authorization': `Bearer ${token}`
         },
         body: retryForm
       });
@@ -2231,6 +2300,10 @@
           'Authorization': `Bearer ${accessToken}`
         }
       });
+      if (res.status === 401) {
+        clearGoogleDriveToken();
+        return null;
+      }
       if (!res.ok) {
         // หากโฟลเดอร์ระบุไว้ไม่ถูกต้อง ให้ลองค้นหาทั่วทั้ง Google Drive
         if (folderId) {
@@ -2576,15 +2649,10 @@
   }
 
   async function uploadExistingAttachmentToDrive(att, renderCallback) {
-    if (!state.googleAccessToken) {
-      if (state.firebaseAuth) {
-        showToast('กรุณาเข้าสู่ระบบ Google เพื่อเปิดสิทธิ์บันทึกไฟล์ลง Drive...', 'info');
-        handleGoogleSignIn();
-      } else {
-        openCloudSyncModal();
-        showToast('⚠️ กรุณาเข้าสู่ระบบ Firebase/Google ก่อนอัปโหลดขึ้น Drive', 'warning');
-      }
-      return;
+    let token = state.googleAccessToken;
+    if (!token) {
+      token = await requestGoogleDriveToken();
+      if (!token) return;
     }
 
     let fileData = att.dataUrl;
