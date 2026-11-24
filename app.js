@@ -401,7 +401,10 @@
     filePreviewPdfContainer: document.getElementById('filePreviewPdfContainer'),
     filePreviewName: document.getElementById('filePreviewName'),
     filePreviewSize: document.getElementById('filePreviewSize'),
-    filePreviewStorageBadge: document.getElementById('filePreviewStorageBadge')
+    filePreviewStorageBadge: document.getElementById('filePreviewStorageBadge'),
+    btnQuickDriveLogin: document.getElementById('btnQuickDriveLogin'),
+    btnQuickDriveLoginEdit: document.getElementById('btnQuickDriveLoginEdit'),
+    btnTooltipUploadDrive: document.getElementById('btnTooltipUploadDrive')
   };
 
   let calendarDragData = null;
@@ -573,6 +576,7 @@
 
   function handleAuthStateChange(user) {
     state.cloudUser = user;
+    updateDriveStatusUI();
 
     if (user) {
       setCloudStatus('online');
@@ -790,6 +794,7 @@
           state.googleAccessToken = result.credential.accessToken;
           sessionStorage.setItem('work_tracker_gdrive_token', state.googleAccessToken);
         }
+        updateDriveStatusUI();
         if (uploadLocal) {
           pushToCloud(true);
         }
@@ -907,6 +912,9 @@
   function handleLogoutCloud() {
     if (!state.firebaseAuth) return;
     state.firebaseAuth.signOut().then(() => {
+      state.googleAccessToken = null;
+      sessionStorage.removeItem('work_tracker_gdrive_token');
+      updateDriveStatusUI();
       showToast('ออกจากระบบ Cloud แล้ว (กลับสู่โหมดในเครื่อง)');
     });
   }
@@ -2295,6 +2303,19 @@
       el.filePreviewTooltip.style.transform = 'translate(-50%, -100%)';
     }
 
+    if (el.btnTooltipUploadDrive) {
+      if (!att.uploadedToDrive) {
+        el.btnTooltipUploadDrive.style.display = 'block';
+        el.btnTooltipUploadDrive.onclick = (e) => {
+          e.stopPropagation();
+          hideAttachmentPreview();
+          uploadExistingAttachmentToDrive(att);
+        };
+      } else {
+        el.btnTooltipUploadDrive.style.display = 'none';
+      }
+    }
+
     el.filePreviewTooltip.style.left = `${Math.max(130, Math.min(window.innerWidth - 130, tooltipX))}px`;
     el.filePreviewTooltip.style.top = `${tooltipY}px`;
     el.filePreviewTooltip.classList.add('active');
@@ -2306,31 +2327,121 @@
     }
   }
 
+  function dataUrlToBlob(dataUrl) {
+    if (!dataUrl) return null;
+    const parts = dataUrl.split(',');
+    if (parts.length < 2) return null;
+    const mimeMatch = parts[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+    const bstr = atob(parts[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+  }
+
   async function openAttachmentFile(att) {
     if (att.driveLink) {
       window.open(att.driveLink, '_blank');
       return;
     }
-    if (att.dataUrl) {
-      const win = window.open();
-      if (att.type && att.type.startsWith('image/')) {
-        win.document.write(`<title>${att.name}</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;height:100vh;"><img src="${att.dataUrl}" style="max-width:100%;max-height:100vh;"></body>`);
+
+    let fileData = att.dataUrl;
+    if (!fileData) {
+      fileData = await getFileFromIndexedDB(att.id);
+    }
+
+    if (fileData) {
+      try {
+        const blob = dataUrlToBlob(fileData);
+        if (blob) {
+          const blobUrl = URL.createObjectURL(blob);
+          const newWin = window.open(blobUrl, '_blank');
+          if (!newWin) {
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.target = '_blank';
+            a.download = att.name || 'document';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          }
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+          return;
+        }
+      } catch (e) {
+        console.error('Failed to open blob URL', e);
+      }
+    }
+
+    showToast('⚠️ ไม่พบข้อมูลไฟล์ในเครื่อง', 'info');
+  }
+
+  async function uploadExistingAttachmentToDrive(att, renderCallback) {
+    if (!state.googleAccessToken) {
+      if (state.firebaseAuth) {
+        showToast('กรุณาเข้าสู่ระบบ Google เพื่อเปิดสิทธิ์บันทึกไฟล์ลง Drive...', 'info');
+        handleGoogleSignIn();
       } else {
-        win.location.href = att.dataUrl;
+        openCloudSyncModal();
+        showToast('⚠️ กรุณาเข้าสู่ระบบ Firebase/Google ก่อนอัปโหลดขึ้น Drive', 'warning');
       }
       return;
     }
-    const dbData = await getFileFromIndexedDB(att.id);
-    if (dbData) {
-      const win = window.open();
-      if (att.type && att.type.startsWith('image/')) {
-        win.document.write(`<title>${att.name}</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;height:100vh;"><img src="${dbData}" style="max-width:100%;max-height:100vh;"></body>`);
-      } else {
-        win.location.href = dbData;
-      }
+
+    let fileData = att.dataUrl;
+    if (!fileData) {
+      fileData = await getFileFromIndexedDB(att.id);
+    }
+    if (!fileData) {
+      showToast('⚠️ ไม่พบข้อมูลไฟล์ที่จะอัปโหลด', 'error');
       return;
     }
-    showToast('กำลังโหลดข้อมูลไฟล์...', 'info');
+
+    att.isUploading = true;
+    if (renderCallback) renderCallback();
+    renderDayTasks();
+    showToast(`☁️ กำลังอัปโหลด "${att.name}" ขึ้น Google Drive...`, 'info');
+
+    try {
+      const blob = dataUrlToBlob(fileData);
+      const fileObj = new File([blob], att.name, { type: att.type });
+      const driveData = await uploadFileToGoogleDrive(fileObj, state.googleAccessToken);
+      att.driveId = driveData.id;
+      att.driveLink = driveData.webViewLink;
+      att.driveThumbnail = driveData.thumbnailLink;
+      att.uploadedToDrive = true;
+      att.isUploading = false;
+      saveTasks();
+      renderDayTasks();
+      renderCalendar();
+      if (renderCallback) renderCallback();
+      showToast(`🎉 อัปโหลด "${att.name}" ขึ้น Google Drive สำเร็จ!`);
+    } catch (err) {
+      console.error('Drive upload failed', err);
+      att.isUploading = false;
+      if (renderCallback) renderCallback();
+      renderDayTasks();
+      showToast(`⚠️ อัปโหลดไม่สำเร็จ: ${err.message}`, 'error');
+    }
+  }
+
+  function updateDriveStatusUI() {
+    const isConnected = !!state.googleAccessToken;
+    [el.btnQuickDriveLogin, el.btnQuickDriveLoginEdit].forEach(btn => {
+      if (!btn) return;
+      if (isConnected) {
+        btn.innerHTML = '<span>🟢 Drive พร้อม</span>';
+        btn.classList.add('drive-connected');
+        btn.title = 'Google Drive เชื่อมต่อแล้ว (คลิกเพื่อเปิดโฟลเดอร์)';
+      } else {
+        btn.innerHTML = '<span>☁️ ล็อกอิน Drive</span>';
+        btn.classList.remove('drive-connected');
+        btn.title = 'คลิกเพื่อเข้าสู่ระบบ Google เพื่ออัปโหลดไฟล์ขึ้น Google Drive อัตโนมัติ';
+      }
+    });
   }
 
   // --- ========================================== ---
@@ -2846,6 +2957,23 @@
       });
     }
 
+    const handleDriveLoginClick = () => {
+      if (state.googleAccessToken) {
+        const folderId = window.GOOGLE_DRIVE_FOLDER_ID || '1xF51wwGdvrCjMzzYC3CR84xMr5VZQC9K';
+        window.open(`https://drive.google.com/drive/folders/${folderId}`, '_blank');
+      } else {
+        if (state.firebaseAuth) {
+          handleGoogleSignIn();
+        } else {
+          openCloudSyncModal();
+          showToast('💡 กรุณาตั้งค่า Firebase เพื่อเข้าสู่ระบบและซิงก์ Google Drive', 'info');
+        }
+      }
+    };
+
+    if (el.btnQuickDriveLogin) el.btnQuickDriveLogin.addEventListener('click', handleDriveLoginClick);
+    if (el.btnQuickDriveLoginEdit) el.btnQuickDriveLoginEdit.addEventListener('click', handleDriveLoginClick);
+
     // Close modals on clicking backdrop
     window.addEventListener('click', (e) => {
       if (e.target === el.dayModal) closeDayModal();
@@ -2894,6 +3022,7 @@
     applyTheme();
     initEventListeners();
     initFirebase();
+    updateDriveStatusUI();
     renderCalendar();
   }
 
