@@ -211,22 +211,33 @@
     showToast(`↩️ ย้อนกลับ: ${previous.desc} เรียบร้อยแล้ว`);
   }
 
+  function updateLocalTimestamp() {
+    state.localUpdatedAt = Date.now();
+    try {
+      localStorage.setItem('work_tracker_local_updated_at', state.localUpdatedAt.toString());
+    } catch (e) {}
+  }
+
   function saveLabels() {
+    updateLocalTimestamp();
     localStorage.setItem('work_tracker_labels', JSON.stringify(state.labels));
     pushToCloud();
   }
 
   function saveTasks() {
+    updateLocalTimestamp();
     localStorage.setItem('work_tracker_tasks', JSON.stringify(state.tasks));
     pushToCloud();
   }
 
   function saveHolidays() {
+    updateLocalTimestamp();
     localStorage.setItem('work_tracker_holidays', JSON.stringify(state.holidays || {}));
     pushToCloud();
   }
 
   function saveSettings() {
+    updateLocalTimestamp();
     localStorage.setItem('work_tracker_colorblind', JSON.stringify(state.colorblindMode));
     localStorage.setItem('work_tracker_theme', state.theme);
     pushToCloud();
@@ -373,9 +384,25 @@
     cloudStatusTitle: document.getElementById('cloudStatusTitle'),
     cloudStatusSubtitle: document.getElementById('cloudStatusSubtitle'),
     tabBtnAccount: document.getElementById('tabBtnAccount'),
+    tabBtnHistory: document.getElementById('tabBtnHistory'),
     tabBtnConfig: document.getElementById('tabBtnConfig'),
     panelAccount: document.getElementById('panelAccount'),
+    panelHistory: document.getElementById('panelHistory'),
     panelConfig: document.getElementById('panelConfig'),
+    cloudHistoryList: document.getElementById('cloudHistoryList'),
+    btnRefreshHistory: document.getElementById('btnRefreshHistory'),
+
+    // Conflict Modal Elements
+    syncConflictModal: document.getElementById('syncConflictModal'),
+    btnCloseConflictModal: document.getElementById('btnCloseConflictModal'),
+    conflictCloudTime: document.getElementById('conflictCloudTime'),
+    conflictCloudStats: document.getElementById('conflictCloudStats'),
+    conflictLocalTime: document.getElementById('conflictLocalTime'),
+    conflictLocalStats: document.getElementById('conflictLocalStats'),
+    conflictLocalDiffTag: document.getElementById('conflictLocalDiffTag'),
+    btnConflictUseCloud: document.getElementById('btnConflictUseCloud'),
+    btnConflictMerge: document.getElementById('btnConflictMerge'),
+    btnConflictUseLocal: document.getElementById('btnConflictUseLocal'),
     viewLoggedIn: document.getElementById('viewLoggedIn'),
     viewLoggedOut: document.getElementById('viewLoggedOut'),
     userEmailDisplay: document.getElementById('userEmailDisplay'),
@@ -564,6 +591,9 @@
       if (el.cloudStatusBanner) {
         el.cloudStatusBanner.className = 'cloud-status-banner banner-online';
       }
+    } else if (status === 'pending') {
+      el.cloudStatusDot.classList.add('dot-syncing');
+      el.cloudStatusText.textContent = detail || 'รอซิงก์...';
     } else if (status === 'syncing') {
       el.cloudStatusDot.classList.add('dot-syncing');
       el.cloudStatusText.textContent = 'กำลังซิงก์...';
@@ -636,6 +666,243 @@
     }
   }
 
+  const CLOUD_SYNC_DEBOUNCE_MS = 7000; // ซิงก์ทุก 7 วินาที (ช่วง 5-10 วินาทีตามที่ผู้ใช้ต้องการ)
+  let cloudSyncCountdownTimer = null;
+  let cloudSyncSecondsRemaining = 7;
+  let isConflictModalOpen = false;
+  let pendingConflictCloudData = null;
+
+  function countTasks(tasksObj) {
+    if (!tasksObj) return 0;
+    let count = 0;
+    Object.keys(tasksObj).forEach(d => {
+      if (Array.isArray(tasksObj[d])) count += tasksObj[d].length;
+    });
+    return count;
+  }
+
+  function getTaskSummaryStats(tasksObj) {
+    if (!tasksObj) return { total: 0, done: 0, pending: 0 };
+    let total = 0, done = 0;
+    Object.keys(tasksObj).forEach(date => {
+      const list = tasksObj[date];
+      if (Array.isArray(list)) {
+        total += list.length;
+        done += list.filter(t => t.done).length;
+      }
+    });
+    return { total, done, pending: total - done };
+  }
+
+  function formatFullDateTimeThai(date) {
+    if (!date || isNaN(date.getTime())) return 'ไม่ระบุเวลา';
+    const day = date.getDate();
+    const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    const month = months[date.getMonth()];
+    const year = date.getFullYear() + 543;
+    const h = String(date.getHours()).padStart(2, '0');
+    const m = String(date.getMinutes()).padStart(2, '0');
+    const s = String(date.getSeconds()).padStart(2, '0');
+    return `${day} ${month} ${year} เวลา ${h}:${m}:${s} น.`;
+  }
+
+  function openSyncConflictModal(cloudData, localTime) {
+    isConflictModalOpen = true;
+    pendingConflictCloudData = cloudData;
+
+    const cloudDate = new Date(cloudData.updatedAt || Date.now());
+    const localDate = new Date(localTime || Date.now());
+    const cloudStats = getTaskSummaryStats(cloudData.tasks);
+    const localStats = getTaskSummaryStats(state.tasks);
+
+    if (el.conflictCloudTime) el.conflictCloudTime.textContent = '⏱️ ' + formatFullDateTimeThai(cloudDate);
+    if (el.conflictCloudStats) el.conflictCloudStats.textContent = `📋 งานทั้งหมด ${cloudStats.total} งาน (เสร็จแล้ว ${cloudStats.done}, รอทำ ${cloudStats.pending})`;
+
+    if (el.conflictLocalTime) el.conflictLocalTime.textContent = '⏱️ ' + formatFullDateTimeThai(localDate);
+    if (el.conflictLocalStats) el.conflictLocalStats.textContent = `📋 งานทั้งหมด ${localStats.total} งาน (เสร็จแล้ว ${localStats.done}, รอทำ ${localStats.pending})`;
+
+    const diffMinutes = Math.round(((cloudData.updatedAt || Date.now()) - localTime) / 60000);
+    if (el.conflictLocalDiffTag) {
+      el.conflictLocalDiffTag.textContent = diffMinutes > 60 ? `เก่ากว่า ~${Math.round(diffMinutes / 60)} ชม.` : (diffMinutes > 0 ? `เก่ากว่า ${diffMinutes} นาที` : 'ข้อมูลเก่ากว่า');
+    }
+
+    if (el.syncConflictModal) el.syncConflictModal.classList.add('active');
+  }
+
+  function closeSyncConflictModal() {
+    isConflictModalOpen = false;
+    pendingConflictCloudData = null;
+    if (el.syncConflictModal) el.syncConflictModal.classList.remove('active');
+  }
+
+  function applyRemoteData(val) {
+    if (!val) return;
+    state.isSyncingFromRemote = true;
+    try {
+      if (val.tasks) state.tasks = val.tasks;
+      if (val.labels) state.labels = val.labels;
+      if (val.holidays) state.holidays = val.holidays;
+      if (val.colorblindMode !== undefined) state.colorblindMode = val.colorblindMode;
+
+      localStorage.setItem('work_tracker_tasks', JSON.stringify(state.tasks));
+      localStorage.setItem('work_tracker_labels', JSON.stringify(state.labels));
+      localStorage.setItem('work_tracker_holidays', JSON.stringify(state.holidays || {}));
+      localStorage.setItem('work_tracker_colorblind', JSON.stringify(state.colorblindMode));
+
+      state.lastSyncTimestamp = new Date(val.updatedAt || Date.now());
+      state.localUpdatedAt = val.updatedAt || Date.now();
+      localStorage.setItem('work_tracker_local_updated_at', state.localUpdatedAt.toString());
+      updateSyncTimestampDisplay();
+
+      renderCalendar();
+      updateTagFilterSelect();
+      if (state.activeModalDate) renderDayTasks();
+    } finally {
+      state.isSyncingFromRemote = false;
+    }
+  }
+
+  function mergeTasksData(localTasks, cloudTasks) {
+    const result = {};
+    const allDates = new Set([
+      ...Object.keys(localTasks || {}),
+      ...Object.keys(cloudTasks || {})
+    ]);
+
+    allDates.forEach(dateKey => {
+      const localList = (localTasks && localTasks[dateKey]) || [];
+      const cloudList = (cloudTasks && cloudTasks[dateKey]) || [];
+
+      const map = new Map();
+
+      // เอา Cloud เป็นตัวตั้งต้น
+      cloudList.forEach(t => {
+        if (t && t.id) map.set(t.id, { ...t });
+      });
+
+      // รวมงานจาก Local เข้าไป
+      localList.forEach(lt => {
+        if (!lt || !lt.id) return;
+        if (!map.has(lt.id)) {
+          // มีเฉพาะในเครื่องนี้ ให้ดึงมาใส่ด้วย (ไม่ให้งานหล่นหาย)
+          map.set(lt.id, { ...lt });
+        } else {
+          // มีทั้งคู่ รวมสถานะและไฟล์แนบ
+          const ct = map.get(lt.id);
+          const done = lt.done || ct.done;
+          const tags = Array.from(new Set([...(lt.tags || []), ...(ct.tags || [])]));
+          const attMap = new Map();
+          (ct.attachments || []).forEach(a => attMap.set(a.name || a.id, a));
+          (lt.attachments || []).forEach(a => {
+            if (!attMap.has(a.name || a.id) || a.uploadedToDrive) {
+              attMap.set(a.name || a.id, a);
+            }
+          });
+
+          map.set(lt.id, {
+            ...ct,
+            ...lt,
+            done,
+            tags,
+            attachments: Array.from(attMap.values())
+          });
+        }
+      });
+
+      result[dateKey] = Array.from(map.values());
+    });
+
+    return result;
+  }
+
+  function pruneCloudHistory(uid) {
+    if (!state.firebaseDb || !uid) return;
+    const historyRef = state.firebaseDb.ref('users/' + uid + '/history');
+    historyRef.limitToFirst(35).once('value', (snap) => {
+      const data = snap.val();
+      if (!data) return;
+      const keys = Object.keys(data).sort();
+      if (keys.length > 20) {
+        const toDelete = keys.slice(0, keys.length - 20);
+        toDelete.forEach(k => historyRef.child(k).remove());
+      }
+    });
+  }
+
+  function loadCloudHistory() {
+    if (!el.cloudHistoryList) return;
+    if (!state.cloudUser || !state.firebaseDb) {
+      el.cloudHistoryList.innerHTML = '<div style="text-align: center; color: var(--text-muted); font-size: 0.82rem; padding: 20px;">กรุณาเข้าสู่ระบบ Cloud เพื่อดูประวัติย้อนหลัง</div>';
+      return;
+    }
+
+    el.cloudHistoryList.innerHTML = '<div style="text-align: center; color: var(--text-muted); font-size: 0.82rem; padding: 20px;">กำลังโหลดประวัติย้อนหลัง...</div>';
+
+    const historyRef = state.firebaseDb.ref('users/' + state.cloudUser.uid + '/history');
+    historyRef.limitToLast(20).once('value', (snap) => {
+      const data = snap.val();
+      if (!data || Object.keys(data).length === 0) {
+        el.cloudHistoryList.innerHTML = '<div style="text-align: center; color: var(--text-muted); font-size: 0.82rem; padding: 20px;">ยังไม่มีประวัติการบันทึกย้อนหลัง (จะเริ่มบันทึกอัตโนมัติเมื่อมีการซิงก์งาน)</div>';
+        return;
+      }
+
+      el.cloudHistoryList.innerHTML = '';
+      const keys = Object.keys(data).sort().reverse(); // Newest first
+
+      keys.forEach(k => {
+        const item = data[k];
+        const dateObj = new Date(item.savedAt || parseInt(k, 10));
+        const timeStr = formatFullDateTimeThai(dateObj);
+        const deviceStr = item.device || '💻 คอมพิวเตอร์';
+        const tasksTxt = `งานทั้งหมด ${item.totalTasks || 0} งาน (เสร็จแล้ว ${item.doneTasks || 0}, รอทำ ${item.pendingTasks || 0})`;
+
+        const row = document.createElement('div');
+        row.className = 'cloud-history-item';
+        row.innerHTML = `
+          <div class="history-item-left">
+            <span class="history-item-time">⏱️ ${timeStr}</span>
+            <span class="history-item-details">${deviceStr} • ${tasksTxt}</span>
+          </div>
+          <button type="button" class="history-restore-btn" data-key="${k}">
+            🔄 กู้คืนข้อมูลนี้
+          </button>
+        `;
+
+        const btn = row.querySelector('.history-restore-btn');
+        btn.addEventListener('click', () => {
+          if (confirm(`คุณต้องการกู้คืนข้อมูลจากวันที่:\n${timeStr}\n\n(ข้อมูลปัจจุบันจะถูกแทนที่ด้วยข้อมูลชุดนี้ และสำรองไปยัง Cloud ทันที)?`)) {
+            restoreFromHistory(item);
+          }
+        });
+
+        el.cloudHistoryList.appendChild(row);
+      });
+    });
+  }
+
+  function restoreFromHistory(historyItem) {
+    if (!historyItem) return;
+    recordUndo('กู้คืนข้อมูลจากประวัติย้อนหลัง');
+    state.tasks = historyItem.tasks || {};
+    if (historyItem.labels) state.labels = historyItem.labels;
+    if (historyItem.holidays) state.holidays = historyItem.holidays;
+    if (historyItem.colorblindMode !== undefined) state.colorblindMode = historyItem.colorblindMode;
+
+    saveTasks();
+    saveLabels();
+    saveHolidays();
+    saveSettings();
+
+    pushToCloud(true); // บันทึกทันที
+
+    renderCalendar();
+    updateTagFilterSelect();
+    if (state.activeModalDate) renderDayTasks();
+
+    closeCloudSyncModal();
+    showToast('🎉 กู้คืนข้อมูลจากประวัติย้อนหลังเรียบร้อยแล้ว!');
+  }
+
   function listenToRemoteData(uid) {
     if (!state.firebaseDb) return;
 
@@ -650,34 +917,27 @@
         return;
       }
 
-      // Avoid looping if change came from local push
-      if (state.lastSyncTimestamp && val.updatedAt && Math.abs(val.updatedAt - state.lastSyncTimestamp.getTime()) < 2000) {
+      // Avoid looping if change came from our own local push
+      if (state.lastSyncTimestamp && val.updatedAt && Math.abs(val.updatedAt - state.lastSyncTimestamp.getTime()) < 3000) {
         return;
       }
 
-      state.isSyncingFromRemote = true;
-      try {
-        if (val.tasks) state.tasks = val.tasks;
-        if (val.labels) state.labels = val.labels;
-        if (val.holidays) state.holidays = val.holidays;
-        if (val.colorblindMode !== undefined) state.colorblindMode = val.colorblindMode;
+      const cloudTime = val.updatedAt || 0;
+      const localTime = state.localUpdatedAt || parseInt(localStorage.getItem('work_tracker_local_updated_at') || '0', 10);
+      const localStats = getTaskSummaryStats(state.tasks);
+      const isContentIdentical = JSON.stringify(state.tasks) === JSON.stringify(val.tasks || {});
 
-        localStorage.setItem('work_tracker_tasks', JSON.stringify(state.tasks));
-        localStorage.setItem('work_tracker_labels', JSON.stringify(state.labels));
-        localStorage.setItem('work_tracker_holidays', JSON.stringify(state.holidays || {}));
-        localStorage.setItem('work_tracker_colorblind', JSON.stringify(state.colorblindMode));
-
-        state.lastSyncTimestamp = new Date(val.updatedAt || Date.now());
-        updateSyncTimestampDisplay();
-
-        renderCalendar();
-        updateTagFilterSelect();
-        if (state.activeModalDate) renderDayTasks();
-
-        showToast('🔄 ซิงก์ข้อมูลงานล่าสุดเรียบร้อย');
-      } finally {
-        state.isSyncingFromRemote = false;
+      // ตรวจสอบความขัดแย้ง (Conflict Detection):
+      // หากข้อมูล Cloud อัปเดตใหม่กว่าในเครื่องเกิน 10 วินาที และในเครื่องนี้มีงานอยู่ และข้อมูลทั้ง 2 ฝั่งไม่ตรงกัน
+      const diffSeconds = Math.round((cloudTime - localTime) / 1000);
+      if (diffSeconds > 10 && localStats.total > 0 && !isContentIdentical && !isConflictModalOpen) {
+        console.warn(`[Sync Conflict] Cloud is newer by ${diffSeconds}s than local. Showing conflict prompt.`);
+        openSyncConflictModal(val, localTime);
+        return;
       }
+
+      applyRemoteData(val);
+      showToast('🔄 ซิงก์ข้อมูลงานล่าสุดเรียบร้อย');
     });
 
     remoteSyncUnsubscribe = () => dataRef.off('value');
@@ -686,17 +946,43 @@
   function pushToCloud(immediate = false) {
     if (state.isSyncingFromRemote || !state.cloudUser || !state.firebaseDb) return;
 
-    if (cloudPushTimeout) clearTimeout(cloudPushTimeout);
+    if (cloudPushTimeout) {
+      clearTimeout(cloudPushTimeout);
+      cloudPushTimeout = null;
+    }
+    if (cloudSyncCountdownTimer) {
+      clearInterval(cloudSyncCountdownTimer);
+      cloudSyncCountdownTimer = null;
+    }
 
     const doPush = () => {
+      if (cloudSyncCountdownTimer) {
+        clearInterval(cloudSyncCountdownTimer);
+        cloudSyncCountdownTimer = null;
+      }
       setCloudStatus('syncing');
       const uid = state.cloudUser.uid;
+      const now = Date.now();
+      const stats = getTaskSummaryStats(state.tasks);
+
       const payload = {
         tasks: state.tasks,
         labels: state.labels,
         holidays: state.holidays || {},
         colorblindMode: state.colorblindMode,
         updatedAt: firebase.database.ServerValue.TIMESTAMP
+      };
+
+      const historyEntry = {
+        savedAt: firebase.database.ServerValue.TIMESTAMP,
+        tasks: state.tasks,
+        labels: state.labels,
+        holidays: state.holidays || {},
+        colorblindMode: state.colorblindMode,
+        totalTasks: stats.total,
+        doneTasks: stats.done,
+        pendingTasks: stats.pending,
+        device: /Android|iPhone|iPad/i.test(navigator.userAgent) ? '📱 มือถือ' : '💻 คอมพิวเตอร์'
       };
 
       // Safety timeout: ถ้าผ่านไป 8 วินาทีแล้วฐานข้อมูลยังไม่ตอบสนอง ให้แจ้งเตือนเรื่อง databaseURL
@@ -714,6 +1000,10 @@
           setCloudStatus('online');
           state.lastSyncTimestamp = new Date();
           updateSyncTimestampDisplay();
+
+          // บันทึก History snapshot แยกไว้ต่างหาก
+          state.firebaseDb.ref('users/' + uid + '/history/' + now).set(historyEntry);
+          pruneCloudHistory(uid);
         })
         .catch((err) => {
           clearTimeout(timeoutId);
@@ -725,7 +1015,20 @@
     if (immediate) {
       doPush();
     } else {
-      cloudPushTimeout = setTimeout(doPush, 400);
+      cloudSyncSecondsRemaining = Math.round(CLOUD_SYNC_DEBOUNCE_MS / 1000);
+      setCloudStatus('pending', `มีข้อมูลใหม่ รอซิงก์ใน ${cloudSyncSecondsRemaining} วิ...`);
+
+      cloudSyncCountdownTimer = setInterval(() => {
+        cloudSyncSecondsRemaining--;
+        if (cloudSyncSecondsRemaining > 0) {
+          setCloudStatus('pending', `มีข้อมูลใหม่ รอซิงก์ใน ${cloudSyncSecondsRemaining} วิ...`);
+        } else {
+          clearInterval(cloudSyncCountdownTimer);
+          cloudSyncCountdownTimer = null;
+        }
+      }, 1000);
+
+      cloudPushTimeout = setTimeout(doPush, CLOUD_SYNC_DEBOUNCE_MS);
     }
   }
 
@@ -3192,22 +3495,83 @@
     if (el.tabBtnAccount) {
       el.tabBtnAccount.addEventListener('click', () => {
         el.tabBtnAccount.classList.add('active');
-        el.tabBtnConfig.classList.remove('active');
-        el.panelAccount.style.display = 'block';
-        el.panelConfig.style.display = 'none';
+        if (el.tabBtnConfig) el.tabBtnConfig.classList.remove('active');
+        if (el.tabBtnHistory) el.tabBtnHistory.classList.remove('active');
+        if (el.panelAccount) el.panelAccount.style.display = 'block';
+        if (el.panelConfig) el.panelConfig.style.display = 'none';
+        if (el.panelHistory) el.panelHistory.style.display = 'none';
       });
     }
     if (el.tabBtnConfig) {
       el.tabBtnConfig.addEventListener('click', () => {
         el.tabBtnConfig.classList.add('active');
-        el.tabBtnAccount.classList.remove('active');
-        el.panelConfig.style.display = 'block';
-        el.panelAccount.style.display = 'none';
+        if (el.tabBtnAccount) el.tabBtnAccount.classList.remove('active');
+        if (el.tabBtnHistory) el.tabBtnHistory.classList.remove('active');
+        if (el.panelConfig) el.panelConfig.style.display = 'block';
+        if (el.panelAccount) el.panelAccount.style.display = 'none';
+        if (el.panelHistory) el.panelHistory.style.display = 'none';
         const cfg = getStoredFirebaseConfig();
         if (cfg && el.firebaseConfigTextarea) {
           el.firebaseConfigTextarea.value = JSON.stringify(cfg, null, 2);
         }
       });
+    }
+    if (el.tabBtnHistory) {
+      el.tabBtnHistory.addEventListener('click', () => {
+        el.tabBtnHistory.classList.add('active');
+        if (el.tabBtnAccount) el.tabBtnAccount.classList.remove('active');
+        if (el.tabBtnConfig) el.tabBtnConfig.classList.remove('active');
+        if (el.panelHistory) el.panelHistory.style.display = 'block';
+        if (el.panelAccount) el.panelAccount.style.display = 'none';
+        if (el.panelConfig) el.panelConfig.style.display = 'none';
+        loadCloudHistory();
+      });
+    }
+    if (el.btnRefreshHistory) {
+      el.btnRefreshHistory.addEventListener('click', loadCloudHistory);
+    }
+
+    // Conflict Modal controls
+    if (el.btnConflictUseCloud) {
+      el.btnConflictUseCloud.addEventListener('click', () => {
+        if (pendingConflictCloudData) {
+          applyRemoteData(pendingConflictCloudData);
+          showToast('☁️ นำข้อมูลล่าสุดจาก Cloud มาใช้งานแล้ว');
+        }
+        closeSyncConflictModal();
+      });
+    }
+    if (el.btnConflictMerge) {
+      el.btnConflictMerge.addEventListener('click', () => {
+        if (pendingConflictCloudData) {
+          const mergedTasks = mergeTasksData(state.tasks, pendingConflictCloudData.tasks || {});
+          state.tasks = mergedTasks;
+          if (pendingConflictCloudData.labels) {
+            Object.keys(pendingConflictCloudData.labels).forEach(lblId => {
+              if (!state.labels[lblId]) {
+                state.labels[lblId] = pendingConflictCloudData.labels[lblId];
+              }
+            });
+          }
+          saveTasks();
+          saveLabels();
+          renderCalendar();
+          if (state.activeModalDate) renderDayTasks();
+          pushToCloud(true);
+          showToast('🔄 รวมข้อมูลทั้งสองฝั่ง (Merge) สำเร็จเรียบร้อย');
+        }
+        closeSyncConflictModal();
+      });
+    }
+    if (el.btnConflictUseLocal) {
+      el.btnConflictUseLocal.addEventListener('click', () => {
+        closeSyncConflictModal();
+        pushToCloud(true);
+        showToast('💻 บันทึกข้อมูลของเครื่องนี้ขึ้น Cloud แล้ว');
+      });
+    }
+    if (el.btnCloseConflictModal) {
+      el.btnCloseConflictModal.addEventListener('click', closeSyncConflictModal);
     }
 
     if (el.btnModePIN) el.btnModePIN.addEventListener('click', () => setAuthMode('pin'));
@@ -3278,6 +3642,16 @@
       if (e.target === el.backupModal) el.backupModal.classList.remove('active');
       if (e.target === el.dragDropActionModal) closeDragDropModal();
       if (e.target === el.cloudSyncModal) closeCloudSyncModal();
+      if (e.target === el.syncConflictModal) closeSyncConflictModal();
+    });
+
+    // Save pending debounce sync before leaving/closing tab
+    window.addEventListener('beforeunload', () => {
+      if (cloudSyncTimer) {
+        clearTimeout(cloudSyncTimer);
+        cloudSyncTimer = null;
+        pushToCloud(true);
+      }
     });
 
     // Keyboard shortcuts (Escape to close, Ctrl+Z to Undo)
@@ -3308,6 +3682,7 @@
         else if (el.backupModal && el.backupModal.classList.contains('active')) el.backupModal.classList.remove('active');
         else if (el.dragDropActionModal && el.dragDropActionModal.classList.contains('active')) closeDragDropModal();
         else if (el.cloudSyncModal && el.cloudSyncModal.classList.contains('active')) closeCloudSyncModal();
+        else if (el.syncConflictModal && el.syncConflictModal.classList.contains('active')) closeSyncConflictModal();
       }
     });
   }
