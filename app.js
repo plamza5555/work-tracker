@@ -183,7 +183,6 @@
 
     saveTasks();
     renderCalendar();
-    renderStats();
     if (state.activeModalDate) {
       renderDayTasks();
       updateHolidayButtonUI();
@@ -648,7 +647,6 @@
         updateSyncTimestampDisplay();
 
         renderCalendar();
-        renderStats();
         updateTagFilterSelect();
         if (state.activeModalDate) renderDayTasks();
 
@@ -2447,11 +2445,18 @@
 
     // Keyboard shortcuts (Escape to close, Ctrl+Z to Undo)
     window.addEventListener('keydown', (e) => {
-      // Ctrl+Z or Cmd+Z to Undo
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        const activeTag = document.activeElement ? document.activeElement.tagName : '';
-        // If actively typing inside an input/textarea, let native text undo work
-        if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') {
+      // Ctrl+Z or Cmd+Z to Undo (รองรับทั้งคีย์บอร์ดภาษาอังกฤษและภาษาไทย)
+      const isZ = e.code === 'KeyZ' || 
+                  (e.key && (e.key.toLowerCase() === 'z' || e.key === 'ผ' || e.key === 'ฉ')) || 
+                  e.keyCode === 90 || 
+                  e.which === 90;
+
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && isZ) {
+        const activeEl = document.activeElement;
+        const isTextInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
+        // หากกำลังพิมพ์ข้อความในช่องกรอกและมีตัวอักษรอยู่ ให้ native browser undo จัดการตัวอักษร
+        // แต่หากช่องกรอกว่างเปล่า (เช่น เพิ่งเพิ่มงานเสร็จ) หรือโฟกัสอยู่นอกช่อง ให้ Undo รายการงาน
+        if (isTextInput && activeEl.value && activeEl.value.length > 0) {
           return;
         }
         e.preventDefault();
