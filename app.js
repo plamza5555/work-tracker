@@ -1966,6 +1966,18 @@
     pendingDropData = null;
   }
 
+  function cloneTaskForNewDay(task) {
+    return {
+      id: 'task-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+      title: task.title,
+      desc: task.desc || '',
+      sheetUrl: task.sheetUrl || '',
+      done: false,
+      tags: [...(task.tags || [])],
+      attachments: task.attachments ? JSON.parse(JSON.stringify(task.attachments)) : []
+    };
+  }
+
   function handleConfirmCopyTask() {
     if (!pendingDropData) return;
     const { dragData, fromTasks, toDateKey } = pendingDropData;
@@ -1981,14 +1993,7 @@
     if (dragData.type === 'all_day') {
       // Copy all tasks of the day
       fromTasks.forEach(task => {
-        const newTask = {
-          id: 'task-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
-          title: task.title,
-          desc: task.desc || '',
-          done: false, // Reset done for continuous work
-          tags: [...(task.tags || [])]
-        };
-        state.tasks[toDateKey].push(newTask);
+        state.tasks[toDateKey].push(cloneTaskForNewDay(task));
       });
 
       saveTasks();
@@ -2000,14 +2005,7 @@
       // Single task copy
       const task = fromTasks.find(t => t.id === dragData.taskId);
       if (task) {
-        const newTask = {
-          id: 'task-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
-          title: task.title,
-          desc: task.desc || '',
-          done: false,
-          tags: [...(task.tags || [])]
-        };
-        state.tasks[toDateKey].push(newTask);
+        state.tasks[toDateKey].push(cloneTaskForNewDay(task));
         saveTasks();
         renderCalendar();
         if (state.activeModalDate === toDateKey) renderDayTasks();
@@ -2032,14 +2030,7 @@
     }
 
     pendingTasks.forEach(task => {
-      const newTask = {
-        id: 'task-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
-        title: task.title,
-        desc: task.desc || '',
-        done: false,
-        tags: [...(task.tags || [])]
-      };
-      state.tasks[toDateKey].push(newTask);
+      state.tasks[toDateKey].push(cloneTaskForNewDay(task));
     });
 
     saveTasks();
@@ -4089,6 +4080,59 @@
       el.filePreviewTooltip.addEventListener('mouseenter', cancelHideAttachmentPreview);
       el.filePreviewTooltip.addEventListener('mouseleave', scheduleHideAttachmentPreview);
     }
+
+    // Clipboard Image Paste Support (Ctrl+V for screenshots or copied image files)
+    window.addEventListener('paste', (e) => {
+      const clipboardData = e.clipboardData || window.clipboardData;
+      if (!clipboardData) return;
+
+      const imageFiles = [];
+      if (clipboardData.items && clipboardData.items.length > 0) {
+        for (let i = 0; i < clipboardData.items.length; i++) {
+          const item = clipboardData.items[i];
+          if (item.kind === 'file' && item.type && item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) imageFiles.push(file);
+          }
+        }
+      } else if (clipboardData.files && clipboardData.files.length > 0) {
+        for (let i = 0; i < clipboardData.files.length; i++) {
+          const file = clipboardData.files[i];
+          if (file.type && file.type.startsWith('image/')) {
+            imageFiles.push(file);
+          }
+        }
+      }
+
+      if (imageFiles.length === 0) return;
+
+      // Normalize generic screenshot filenames (e.g. "image.png") so multiple pastes don't collide
+      const now = new Date();
+      const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+      const normalizedFiles = imageFiles.map((file, idx) => {
+        const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg').split('+')[0];
+        const isGenericName = !file.name || /^image\.(png|jpe?g|webp|gif)$/i.test(file.name) || file.name === 'blob';
+        if (isGenericName) {
+          const uniqueName = `screenshot_${stamp}${imageFiles.length > 1 ? '_' + (idx + 1) : ''}.${ext}`;
+          return new File([file], uniqueName, { type: file.type });
+        }
+        return file;
+      });
+
+      // Route pasted image to the currently active modal
+      if (el.editTaskModal && el.editTaskModal.classList.contains('active')) {
+        e.preventDefault();
+        handleFilesSelected(normalizedFiles, state.editingTaskAttachments, renderEditTaskAttachments);
+        showToast(`📋 วางรูปภาพจาก Clipboard แล้ว (${normalizedFiles.length} ไฟล์)`);
+      } else if (el.dayModal && el.dayModal.classList.contains('active')) {
+        e.preventDefault();
+        handleFilesSelected(normalizedFiles, state.newTaskAttachments, renderNewTaskAttachments);
+        showToast(`📋 วางรูปภาพจาก Clipboard แล้ว (${normalizedFiles.length} ไฟล์)`);
+      } else if (el.bgSettingsModal && el.bgSettingsModal.classList.contains('active')) {
+        e.preventDefault();
+        handleBgImageUpload(normalizedFiles[0]);
+      }
+    });
 
     // Close modals on clicking backdrop
     window.addEventListener('click', (e) => {
