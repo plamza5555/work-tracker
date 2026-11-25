@@ -60,6 +60,7 @@
     dayTaskFilter: 'all', // 'all', 'pending', 'done'
     tagFilter: 'all', // 'all' or labelId
     colorblindMode: true,
+    dedupMonthlyTasks: true,
     theme: 'dark',
     
     // Label popover context
@@ -126,6 +127,9 @@
 
       const savedColorblind = localStorage.getItem('work_tracker_colorblind');
       state.colorblindMode = savedColorblind !== null ? JSON.parse(savedColorblind) : true;
+
+      const savedDedup = localStorage.getItem('work_tracker_dedup_monthly');
+      state.dedupMonthlyTasks = savedDedup !== null ? JSON.parse(savedDedup) : true;
 
       const savedHolidays = localStorage.getItem('work_tracker_holidays');
       state.holidays = savedHolidays ? JSON.parse(savedHolidays) : {};
@@ -250,6 +254,7 @@
   function saveSettings() {
     updateLocalTimestamp();
     localStorage.setItem('work_tracker_colorblind', JSON.stringify(state.colorblindMode));
+    localStorage.setItem('work_tracker_dedup_monthly', JSON.stringify(state.dedupMonthlyTasks));
     localStorage.setItem('work_tracker_theme', state.theme);
     pushToCloud();
   }
@@ -299,10 +304,12 @@
 
     // Month Stats
     statMonthTotal: document.getElementById('statMonthTotal'),
+    statMonthRawHint: document.getElementById('statMonthRawHint'),
     statMonthDone: document.getElementById('statMonthDone'),
     statMonthPending: document.getElementById('statMonthPending'),
     statProgressBar: document.getElementById('statProgressBar'),
     statProgressPercent: document.getElementById('statProgressPercent'),
+    btnToggleDedupMonthly: document.getElementById('btnToggleDedupMonthly'),
 
     // Day Modal
     dayModal: document.getElementById('dayModal'),
@@ -312,6 +319,7 @@
     addTaskForm: document.getElementById('addTaskForm'),
     taskTitleInput: document.getElementById('taskTitleInput'),
     taskDescInput: document.getElementById('taskDescInput'),
+    taskSheetUrlInput: document.getElementById('taskSheetUrlInput'),
     btnOpenNewTaskLabels: document.getElementById('btnOpenNewTaskLabels'),
     newTaskSelectedTagsPills: document.getElementById('newTaskSelectedTagsPills'),
     dayTaskList: document.getElementById('dayTaskList'),
@@ -330,6 +338,8 @@
     editTaskDate: document.getElementById('editTaskDate'),
     editTaskTitle: document.getElementById('editTaskTitle'),
     editTaskDesc: document.getElementById('editTaskDesc'),
+    editTaskSheetUrl: document.getElementById('editTaskSheetUrl'),
+    btnOpenEditSheetUrl: document.getElementById('btnOpenEditSheetUrl'),
 
     // Trello Label Picker Modal
     labelPickerModal: document.getElementById('labelPickerModal'),
@@ -352,6 +362,7 @@
     customColorHex: document.getElementById('customColorHex'),
     labelLivePreview: document.getElementById('labelLivePreview'),
     previewLabelText: document.getElementById('previewLabelText'),
+    labelCountOnceMonthly: document.getElementById('labelCountOnceMonthly'),
     btnSaveLabel: document.getElementById('btnSaveLabel'),
     btnDeleteLabel: document.getElementById('btnDeleteLabel'),
 
@@ -1494,8 +1505,11 @@
 
     const todayKey = formatDateKey(new Date());
 
-    let monthTotalTasks = 0;
-    let monthDoneTasks = 0;
+    let rawTotalTasks = 0;
+    const monthlyJobMap = new Map(); // Key -> { done: boolean }
+    const countOnceLabelIds = new Set(
+      state.labels.filter(l => l.countOnceMonthly).map(l => l.id)
+    );
 
     // Previous month filler days
     for (let i = firstDayOfMonth - 1; i >= 0; i--) {
@@ -1504,21 +1518,36 @@
       el.calendarGrid.appendChild(cell);
     }
 
-    // Current month days
+    // Current month days (chronological order so later days update continuous job status)
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day);
       const dateKey = formatDateKey(date);
       const tasks = state.tasks[dateKey] || [];
 
-      // Check stats
       tasks.forEach(t => {
-        monthTotalTasks++;
-        if (t.done) monthDoneTasks++;
+        rawTotalTasks++;
+        const matchedOnceTagId = (t.tags || []).find(tid => countOnceLabelIds.has(tid));
+        let groupKey;
+        if (matchedOnceTagId) {
+          groupKey = `tag:${matchedOnceTagId}`;
+        } else if (state.dedupMonthlyTasks && t.title && t.title.trim()) {
+          groupKey = `title:${t.title.trim().toLowerCase()}`;
+        } else {
+          groupKey = `task:${dateKey}:${t.id}`;
+        }
+        // Later day's status in the month reflects latest progress of the continuous task
+        monthlyJobMap.set(groupKey, { done: !!t.done });
       });
 
       const cell = createDayCell(date, false, todayKey);
       el.calendarGrid.appendChild(cell);
     }
+
+    let monthTotalTasks = monthlyJobMap.size;
+    let monthDoneTasks = 0;
+    monthlyJobMap.forEach(job => {
+      if (job.done) monthDoneTasks++;
+    });
 
     // Next month filler days (fill out remaining grid up to 35 or 42 cells)
     const totalRendered = firstDayOfMonth + daysInMonth;
@@ -1534,6 +1563,23 @@
     const percent = monthTotalTasks > 0 ? Math.round((monthDoneTasks / monthTotalTasks) * 100) : 0;
 
     el.statMonthTotal.textContent = monthTotalTasks;
+    if (el.statMonthRawHint) {
+      if (rawTotalTasks > monthTotalTasks) {
+        el.statMonthRawHint.textContent = `(จาก ${rawTotalTasks} รายการรายวัน)`;
+        el.statMonthRawHint.style.display = 'inline';
+      } else {
+        el.statMonthRawHint.style.display = 'none';
+      }
+    }
+    if (el.btnToggleDedupMonthly) {
+      el.btnToggleDedupMonthly.classList.toggle('active', !!state.dedupMonthlyTasks);
+      const span = el.btnToggleDedupMonthly.querySelector('span');
+      if (span) {
+        span.textContent = state.dedupMonthlyTasks
+          ? '🔁 นับงานต่อเนื่องเป็น 1 งาน: เปิด'
+          : '🔁 นับงานต่อเนื่องเป็น 1 งาน: ปิด';
+      }
+    }
     el.statMonthDone.textContent = monthDoneTasks;
     el.statMonthPending.textContent = monthPending;
     el.statProgressBar.style.width = `${percent}%`;
@@ -2172,6 +2218,21 @@
       });
       tagsRow.appendChild(addTagBtn);
 
+      // Google Sheet Link Button (if sheetUrl or Google Sheet URL in desc)
+      const sheetUrl = extractSheetUrl(task);
+      let sheetBtn = null;
+      if (sheetUrl) {
+        sheetBtn = document.createElement('a');
+        sheetBtn.href = sheetUrl;
+        sheetBtn.target = '_blank';
+        sheetBtn.rel = 'noopener noreferrer';
+        sheetBtn.className = 'btn-sheet-link';
+        sheetBtn.innerHTML = `📊 เปิด Sheet ↗`;
+        sheetBtn.title = `เปิด Google Sheet: ${sheetUrl}`;
+        sheetBtn.addEventListener('click', (e) => e.stopPropagation());
+        tagsRow.appendChild(sheetBtn);
+      }
+
       content.appendChild(tagsRow);
 
       // Attachments Row
@@ -2239,7 +2300,7 @@
       });
 
       // Prevent drag on interactive buttons
-      [checkbox, addTagBtn, editBtn, delBtn].forEach(el => {
+      [checkbox, addTagBtn, sheetBtn, editBtn, delBtn].forEach(el => {
         if (el) el.addEventListener('mousedown', (e) => e.stopPropagation());
       });
 
@@ -2388,12 +2449,23 @@
     });
   }
 
+  function extractSheetUrl(task) {
+    if (!task) return '';
+    if (task.sheetUrl && task.sheetUrl.trim()) return task.sheetUrl.trim();
+    if (task.desc) {
+      const match = task.desc.match(/https?:\/\/docs\.google\.com\/spreadsheets\/[^\s]+/i);
+      if (match) return match[0];
+    }
+    return '';
+  }
+
   function handleAddNewTask(e) {
     e.preventDefault();
     const title = el.taskTitleInput.value.trim();
     if (!title) return;
 
     const desc = el.taskDescInput.value.trim();
+    const sheetUrl = el.taskSheetUrlInput ? el.taskSheetUrlInput.value.trim() : '';
     const dateKey = state.activeModalDate;
     if (!dateKey) return;
 
@@ -2407,6 +2479,7 @@
       id: 'task-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
       title: title,
       desc: desc,
+      sheetUrl: sheetUrl,
       done: false,
       tags: [...state.newTaskSelectedTagIds],
       attachments: [...state.newTaskAttachments]
@@ -2418,6 +2491,7 @@
     // Reset inputs
     el.taskTitleInput.value = '';
     el.taskDescInput.value = '';
+    if (el.taskSheetUrlInput) el.taskSheetUrlInput.value = '';
     state.newTaskSelectedTagIds = [];
     renderNewTaskSelectedTags();
     state.newTaskAttachments = [];
@@ -2449,6 +2523,11 @@
     el.editTaskDate.value = dateKey;
     el.editTaskTitle.value = task.title;
     el.editTaskDesc.value = task.desc || '';
+    const sheetUrl = task.sheetUrl || extractSheetUrl(task) || '';
+    if (el.editTaskSheetUrl) el.editTaskSheetUrl.value = sheetUrl;
+    if (el.btnOpenEditSheetUrl) {
+      el.btnOpenEditSheetUrl.style.display = sheetUrl ? 'inline-block' : 'none';
+    }
     state.editingTaskAttachments = task.attachments ? JSON.parse(JSON.stringify(task.attachments)) : [];
     renderEditTaskAttachments();
     el.editTaskModal.classList.add('active');
@@ -2466,6 +2545,7 @@
     const dateKey = el.editTaskDate.value;
     const title = el.editTaskTitle.value.trim();
     const desc = el.editTaskDesc.value.trim();
+    const sheetUrl = el.editTaskSheetUrl ? el.editTaskSheetUrl.value.trim() : '';
 
     if (!title || !dateKey || !state.tasks[dateKey]) return;
 
@@ -2474,6 +2554,7 @@
       recordUndo(`แก้ไขงาน "${title}"`);
       task.title = title;
       task.desc = desc;
+      task.sheetUrl = sheetUrl;
       task.attachments = [...state.editingTaskAttachments];
       saveTasks();
       renderDayTasks();
@@ -3278,12 +3359,14 @@
       el.labelEditorTitle.textContent = 'Edit label';
       el.labelTitleInput.value = label ? label.title : '';
       state.selectedEditorColor = label ? label.color : '#0055cc';
+      if (el.labelCountOnceMonthly) el.labelCountOnceMonthly.checked = !!(label && label.countOnceMonthly);
       el.btnDeleteLabel.style.display = 'inline-flex';
     } else {
       // Creating new label
       el.labelEditorTitle.textContent = 'Create label';
       el.labelTitleInput.value = '';
       state.selectedEditorColor = COLOR_PALETTE[0];
+      if (el.labelCountOnceMonthly) el.labelCountOnceMonthly.checked = false;
       el.btnDeleteLabel.style.display = 'none';
     }
 
@@ -3342,6 +3425,14 @@
       textSpan.className = 'label-text';
       textSpan.textContent = label.title;
       pill.appendChild(textSpan);
+
+      if (label.countOnceMonthly) {
+        const oncePill = document.createElement('span');
+        oncePill.className = 'label-count-once-pill';
+        oncePill.textContent = '1 งาน/เดือน';
+        oncePill.title = 'งานที่มี Tag นี้จะถูกนับรวมเป็น 1 งานต่อเดือน';
+        pill.appendChild(oncePill);
+      }
 
       // Clicking pill also toggles checkbox
       pill.addEventListener('click', () => {
@@ -3432,6 +3523,7 @@
     }
 
     const color = state.selectedEditorColor;
+    const countOnceMonthly = el.labelCountOnceMonthly ? el.labelCountOnceMonthly.checked : false;
 
     if (state.editingLabelId) {
       // Update existing
@@ -3439,6 +3531,7 @@
       if (label) {
         label.title = title;
         label.color = color;
+        label.countOnceMonthly = countOnceMonthly;
         showToast(`แก้ไข Tag "${title}" เรียบร้อยแล้ว`);
       }
     } else {
@@ -3449,7 +3542,8 @@
         id: 'lbl-' + Date.now(),
         title: title,
         color: color,
-        pattern: randomPattern
+        pattern: randomPattern,
+        countOnceMonthly: countOnceMonthly
       };
       state.labels.push(newLabel);
       showToast(`สร้าง Tag ใหม่ "${title}" เรียบร้อยแล้ว`);
@@ -3587,6 +3681,20 @@
       renderCalendar();
     });
 
+    // Monthly deduplication toggle
+    if (el.btnToggleDedupMonthly) {
+      el.btnToggleDedupMonthly.addEventListener('click', () => {
+        state.dedupMonthlyTasks = !state.dedupMonthlyTasks;
+        saveSettings();
+        renderCalendar();
+        showToast(
+          state.dedupMonthlyTasks
+            ? '🔁 เปิดโหมดนับงานต่อเนื่อง/ชื่อซ้ำเป็น 1 งานต่อเดือน'
+            : '📋 เปลี่ยนเป็นนับทุกรายการรายวันทั้งหมด'
+        );
+      });
+    }
+
     // Day modal controls
     el.btnCloseDayModal.addEventListener('click', closeDayModal);
     el.addTaskForm.addEventListener('submit', handleAddNewTask);
@@ -3655,6 +3763,15 @@
     el.btnCloseEditTaskModal.addEventListener('click', closeEditTaskModal);
     el.btnCancelEditTask.addEventListener('click', closeEditTaskModal);
     el.editTaskForm.addEventListener('submit', handleSaveEditTask);
+    if (el.editTaskSheetUrl && el.btnOpenEditSheetUrl) {
+      el.editTaskSheetUrl.addEventListener('input', () => {
+        el.btnOpenEditSheetUrl.style.display = el.editTaskSheetUrl.value.trim() ? 'inline-block' : 'none';
+      });
+      el.btnOpenEditSheetUrl.addEventListener('click', () => {
+        const url = el.editTaskSheetUrl.value.trim();
+        if (url) window.open(url, '_blank', 'noopener,noreferrer');
+      });
+    }
 
     // Backup & Restore
     el.btnBackup.addEventListener('click', () => el.backupModal.classList.add('active'));

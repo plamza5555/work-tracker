@@ -2741,3 +2741,148 @@ body.theme-light.has-custom-bg .day-cell:hover {
   cursor: pointer;
 }
 
+/* ===================================================
+   Google Sheet Link Input & Button
+   =================================================== */
+.sheet-input-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.sheet-input-icon {
+  position: absolute;
+  left: 10px;
+  font-size: 0.9rem;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.sheet-url-input {
+  padding-left: 32px !important;
+  font-size: 0.82rem;
+}
+
+.btn-sheet-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background-color: rgba(31, 132, 90, 0.18);
+  color: #4bce97;
+  border: 1px solid rgba(75, 206, 151, 0.4);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.btn-sheet-link:hover {
+  background-color: #1f845a;
+  color: #ffffff;
+  border-color: #4bce97;
+}
+
+body.theme-light .btn-sheet-link {
+  background-color: rgba(31, 132, 90, 0.1);
+  color: #1f845a;
+  border-color: rgba(31, 132, 90, 0.35);
+}
+
+body.theme-light .btn-sheet-link:hover {
+  background-color: #1f845a;
+  color: #ffffff;
+}
+
+.btn-open-sheet-inline {
+  background: rgba(31, 132, 90, 0.18);
+  color: #4bce97;
+  border: 1px solid rgba(75, 206, 151, 0.4);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-open-sheet-inline:hover {
+  background: #1f845a;
+  color: #ffffff;
+}
+
+/* ===================================================
+   Monthly Deduplication Toggle & Per-Tag Count Once
+   =================================================== */
+.stat-raw-hint {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+.btn-dedup-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 500;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-dedup-toggle:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-dedup-toggle.active {
+  background-color: rgba(87, 157, 255, 0.14);
+  border-color: rgba(87, 157, 255, 0.45);
+  color: var(--accent-primary);
+}
+
+.label-count-once-group {
+  margin-top: 10px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background-color: rgba(87, 157, 255, 0.08);
+  border: 1px solid rgba(87, 157, 255, 0.25);
+}
+
+.label-checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.label-checkbox-row input[type="checkbox"] {
+  margin-top: 2px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+}
+
+.label-count-once-pill {
+  font-size: 0.66rem;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  font-weight: 600;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
