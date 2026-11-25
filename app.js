@@ -546,6 +546,7 @@
 
   // --- Custom Background Wallpaper Management (Per-Month) ---
   const BG_IMAGE_IDB_PREFIX = '__custom_bg_image__';
+  const bgDataUrlCache = {};
 
   function getCurrentBgMonthKey() {
     return `${state.viewYear}-${String(state.viewMonth + 1).padStart(2, '0')}`;
@@ -645,8 +646,17 @@
     const monthKey = getCurrentBgMonthKey();
     const cfg = getMonthBgConfig(monthKey);
 
+    if (el.bgModalMonthName) {
+      el.bgModalMonthName.textContent = `${THAI_MONTHS[state.viewMonth]} ${state.viewYear}`;
+    }
+
     if (!cfg || !cfg.hasImage) {
       applyCustomBackgroundStyles(null, monthKey);
+      return;
+    }
+
+    if (bgDataUrlCache[monthKey]) {
+      applyCustomBackgroundStyles(bgDataUrlCache[monthKey], monthKey);
       return;
     }
 
@@ -664,6 +674,7 @@
     if (monthKey !== getCurrentBgMonthKey()) return;
 
     if (dataUrl) {
+      bgDataUrlCache[monthKey] = dataUrl;
       applyCustomBackgroundStyles(dataUrl, monthKey);
     } else {
       cfg.hasImage = false;
@@ -710,6 +721,7 @@
     try {
       showToast(`🖼️ กำลังบันทึกภาพพื้นหลังสำหรับ ${THAI_MONTHS[state.viewMonth]} ${state.viewYear}...`);
       const dataUrl = await resizeBgImageIfNeeded(file);
+      bgDataUrlCache[monthKey] = dataUrl;
       await saveFileToIndexedDB(getMonthBgIdbKey(monthKey, false), dataUrl);
       const cfg = getMonthBgConfig(monthKey);
       cfg.hasImage = true;
@@ -724,6 +736,7 @@
 
   async function resetCustomBackground() {
     const monthKey = getCurrentBgMonthKey();
+    delete bgDataUrlCache[monthKey];
     const cfg = getMonthBgConfig(monthKey);
     cfg.hasImage = false;
     saveBgSettings();
@@ -2663,11 +2676,16 @@
   async function saveFileToIndexedDB(id, dataUrl) {
     try {
       const db = await openFilesDB();
-      if (!db) return;
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).put({ id, data: dataUrl, updatedAt: Date.now() });
+      if (!db) return false;
+      return new Promise((resolve) => {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        tx.objectStore(IDB_STORE).put({ id, data: dataUrl, updatedAt: Date.now() });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      });
     } catch (e) {
       console.warn('IndexedDB save failed', e);
+      return false;
     }
   }
 
