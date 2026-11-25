@@ -87,10 +87,7 @@
     editingTaskAttachments: [],
     googleAccessToken: getValidGoogleToken(),
     bgSettings: {
-      hasImage: false,
-      overlayOpacity: 40,
-      blur: 0,
-      cardOpacity: 78
+      months: {}
     }
   };
 
@@ -139,7 +136,23 @@
 
       const savedBg = localStorage.getItem('work_tracker_bg_settings');
       if (savedBg) {
-        state.bgSettings = Object.assign({ hasImage: false, overlayOpacity: 40, blur: 0, cardOpacity: 78 }, JSON.parse(savedBg));
+        const parsedBg = JSON.parse(savedBg);
+        if (parsedBg && parsedBg.months) {
+          state.bgSettings = parsedBg;
+        } else if (parsedBg && parsedBg.hasImage !== undefined) {
+          // Migrate legacy global bg setting to current month
+          const curKey = `${state.viewYear}-${String(state.viewMonth + 1).padStart(2, '0')}`;
+          state.bgSettings = { months: {} };
+          if (parsedBg.hasImage) {
+            state.bgSettings.months[curKey] = {
+              hasImage: true,
+              legacyKey: true,
+              overlayOpacity: parsedBg.overlayOpacity ?? 40,
+              blur: parsedBg.blur ?? 0,
+              cardOpacity: parsedBg.cardOpacity ?? 78
+            };
+          }
+        }
       }
     } catch (e) {
       console.warn('Could not load storage, using default values', e);
@@ -384,6 +397,9 @@
     btnBgSettings: document.getElementById('btnBgSettings'),
     bgSettingsModal: document.getElementById('bgSettingsModal'),
     btnCloseBgModal: document.getElementById('btnCloseBgModal'),
+    btnBgPrevMonth: document.getElementById('btnBgPrevMonth'),
+    btnBgNextMonth: document.getElementById('btnBgNextMonth'),
+    bgModalMonthName: document.getElementById('bgModalMonthName'),
     bgPreviewBox: document.getElementById('bgPreviewBox'),
     bgImageInput: document.getElementById('bgImageInput'),
     btnUploadBgImage: document.getElementById('btnUploadBgImage'),
@@ -528,8 +544,31 @@
     showToast(`เปลี่ยนเป็นโหมด ${state.theme === 'dark' ? 'มืด (Dark)' : 'สว่าง (Light)'}`);
   }
 
-  // --- Custom Background Wallpaper Management ---
-  const BG_IMAGE_IDB_KEY = '__custom_bg_image__';
+  // --- Custom Background Wallpaper Management (Per-Month) ---
+  const BG_IMAGE_IDB_PREFIX = '__custom_bg_image__';
+
+  function getCurrentBgMonthKey() {
+    return `${state.viewYear}-${String(state.viewMonth + 1).padStart(2, '0')}`;
+  }
+
+  function getMonthBgIdbKey(monthKey, legacy = false) {
+    return legacy ? BG_IMAGE_IDB_PREFIX : `${BG_IMAGE_IDB_PREFIX}_${monthKey}`;
+  }
+
+  function getMonthBgConfig(monthKey) {
+    if (!state.bgSettings || !state.bgSettings.months) {
+      state.bgSettings = { months: {} };
+    }
+    if (!state.bgSettings.months[monthKey]) {
+      state.bgSettings.months[monthKey] = {
+        hasImage: false,
+        overlayOpacity: 40,
+        blur: 0,
+        cardOpacity: 78
+      };
+    }
+    return state.bgSettings.months[monthKey];
+  }
 
   function saveBgSettings() {
     try {
@@ -539,8 +578,13 @@
     }
   }
 
-  function applyCustomBackgroundStyles(dataUrl) {
-    const cfg = state.bgSettings || { hasImage: false, overlayOpacity: 40, blur: 0, cardOpacity: 78 };
+  function applyCustomBackgroundStyles(dataUrl, monthKey) {
+    const activeKey = monthKey || getCurrentBgMonthKey();
+    const cfg = getMonthBgConfig(activeKey);
+
+    if (el.bgModalMonthName) {
+      el.bgModalMonthName.textContent = `${THAI_MONTHS[state.viewMonth]} ${state.viewYear}`;
+    }
 
     if (dataUrl && cfg.hasImage) {
       document.body.classList.add('has-custom-bg');
@@ -580,7 +624,7 @@
         el.bgPreviewBox.innerHTML = `
           <div class="bg-preview-empty">
             <span style="font-size: 2rem;">🌄</span>
-            <span>ยังไม่ได้ตั้งภาพพื้นหลัง (ใช้สีธีมเริ่มต้น)</span>
+            <span>ยังไม่ได้ตั้งภาพพื้นหลังสำหรับ ${THAI_MONTHS[state.viewMonth]} ${state.viewYear}</span>
           </div>
         `;
       }
@@ -598,17 +642,33 @@
   }
 
   async function loadAndApplyCustomBackground() {
-    if (!state.bgSettings || !state.bgSettings.hasImage) {
-      applyCustomBackgroundStyles(null);
+    const monthKey = getCurrentBgMonthKey();
+    const cfg = getMonthBgConfig(monthKey);
+
+    if (!cfg || !cfg.hasImage) {
+      applyCustomBackgroundStyles(null, monthKey);
       return;
     }
-    const dataUrl = await getFileFromIndexedDB(BG_IMAGE_IDB_KEY);
+
+    let dataUrl = await getFileFromIndexedDB(getMonthBgIdbKey(monthKey, false));
+    if (!dataUrl && cfg.legacyKey) {
+      dataUrl = await getFileFromIndexedDB(getMonthBgIdbKey(monthKey, true));
+      if (dataUrl) {
+        await saveFileToIndexedDB(getMonthBgIdbKey(monthKey, false), dataUrl);
+        delete cfg.legacyKey;
+        saveBgSettings();
+      }
+    }
+
+    // Check if user already navigated to another month while async DB read was running
+    if (monthKey !== getCurrentBgMonthKey()) return;
+
     if (dataUrl) {
-      applyCustomBackgroundStyles(dataUrl);
+      applyCustomBackgroundStyles(dataUrl, monthKey);
     } else {
-      state.bgSettings.hasImage = false;
+      cfg.hasImage = false;
       saveBgSettings();
-      applyCustomBackgroundStyles(null);
+      applyCustomBackgroundStyles(null, monthKey);
     }
   }
 
@@ -646,36 +706,42 @@
       showToast('⚠️ กรุณาเลือกไฟล์รูปภาพ (.jpg, .png, .webp)', 'warning');
       return;
     }
+    const monthKey = getCurrentBgMonthKey();
     try {
-      showToast('🖼️ กำลังประมวลผลและบันทึกภาพพื้นหลัง...');
+      showToast(`🖼️ กำลังบันทึกภาพพื้นหลังสำหรับ ${THAI_MONTHS[state.viewMonth]} ${state.viewYear}...`);
       const dataUrl = await resizeBgImageIfNeeded(file);
-      await saveFileToIndexedDB(BG_IMAGE_IDB_KEY, dataUrl);
-      state.bgSettings.hasImage = true;
+      await saveFileToIndexedDB(getMonthBgIdbKey(monthKey, false), dataUrl);
+      const cfg = getMonthBgConfig(monthKey);
+      cfg.hasImage = true;
+      delete cfg.legacyKey;
       saveBgSettings();
-      applyCustomBackgroundStyles(dataUrl);
-      showToast('✨ เปลี่ยนภาพพื้นหลังเรียบร้อยแล้ว!');
+      applyCustomBackgroundStyles(dataUrl, monthKey);
+      showToast(`✨ เปลี่ยนภาพพื้นหลังเดือน ${THAI_MONTHS[state.viewMonth]} เรียบร้อย!`);
     } catch (err) {
       showToast('⚠️ ' + err.message, 'error');
     }
   }
 
   async function resetCustomBackground() {
-    state.bgSettings.hasImage = false;
+    const monthKey = getCurrentBgMonthKey();
+    const cfg = getMonthBgConfig(monthKey);
+    cfg.hasImage = false;
     saveBgSettings();
     try {
       const db = await openFilesDB();
       if (db) {
         const tx = db.transaction(IDB_STORE, 'readwrite');
-        tx.objectStore(IDB_STORE).delete(BG_IMAGE_IDB_KEY);
+        tx.objectStore(IDB_STORE).delete(getMonthBgIdbKey(monthKey, false));
       }
     } catch (e) {
       console.warn('Error removing bg from IDB:', e);
     }
-    applyCustomBackgroundStyles(null);
-    showToast('🗑️ ลบภาพพื้นหลังและกลับสู่สีธีมเริ่มต้นแล้ว');
+    applyCustomBackgroundStyles(null, monthKey);
+    showToast(`🗑️ ลบภาพพื้นหลังเดือน ${THAI_MONTHS[state.viewMonth]} แล้ว`);
   }
 
   function openBgSettingsModal() {
+    loadAndApplyCustomBackground();
     if (el.bgSettingsModal) el.bgSettingsModal.classList.add('active');
   }
 
@@ -1496,6 +1562,9 @@
     // Update Filter Select Options
     updateTagFilterSelect();
 
+    // Update Custom Background for the viewed month
+    loadAndApplyCustomBackground();
+
     // Clear calendar grid
     el.calendarGrid.innerHTML = '';
 
@@ -2183,10 +2252,13 @@
       titleWrap.appendChild(title);
 
       if (task.desc && task.desc.trim()) {
-        const desc = document.createElement('div');
-        desc.className = 'task-desc';
-        desc.textContent = task.desc;
-        titleWrap.appendChild(desc);
+        const displayDesc = task.desc.replace(/https?:\/\/docs\.google\.com\/spreadsheets\/[^\s]+/gi, '').trim();
+        if (displayDesc) {
+          const desc = document.createElement('div');
+          desc.className = 'task-desc';
+          desc.textContent = displayDesc;
+          titleWrap.appendChild(desc);
+        }
       }
       content.appendChild(titleWrap);
 
@@ -2227,7 +2299,7 @@
         sheetBtn.target = '_blank';
         sheetBtn.rel = 'noopener noreferrer';
         sheetBtn.className = 'btn-sheet-link';
-        sheetBtn.innerHTML = `📊 เปิด Sheet ↗`;
+        sheetBtn.innerHTML = `📊 Sheet ↗`;
         sheetBtn.title = `เปิด Google Sheet: ${sheetUrl}`;
         sheetBtn.addEventListener('click', (e) => e.stopPropagation());
         tagsRow.appendChild(sheetBtn);
@@ -3786,6 +3858,26 @@
     // Custom Background Settings
     if (el.btnBgSettings) el.btnBgSettings.addEventListener('click', openBgSettingsModal);
     if (el.btnCloseBgModal) el.btnCloseBgModal.addEventListener('click', closeBgSettingsModal);
+    if (el.btnBgPrevMonth) {
+      el.btnBgPrevMonth.addEventListener('click', () => {
+        state.viewMonth--;
+        if (state.viewMonth < 0) {
+          state.viewMonth = 11;
+          state.viewYear--;
+        }
+        renderCalendar();
+      });
+    }
+    if (el.btnBgNextMonth) {
+      el.btnBgNextMonth.addEventListener('click', () => {
+        state.viewMonth++;
+        if (state.viewMonth > 11) {
+          state.viewMonth = 0;
+          state.viewYear++;
+        }
+        renderCalendar();
+      });
+    }
     if (el.btnUploadBgImage && el.bgImageInput) {
       el.btnUploadBgImage.addEventListener('click', () => el.bgImageInput.click());
       el.bgImageInput.addEventListener('change', (e) => {
@@ -3799,25 +3891,28 @@
     }
     if (el.bgOverlayRange) {
       el.bgOverlayRange.addEventListener('input', (e) => {
-        state.bgSettings.overlayOpacity = parseInt(e.target.value, 10);
-        if (el.bgOverlayValue) el.bgOverlayValue.textContent = `${state.bgSettings.overlayOpacity}%`;
-        if (el.customBgOverlay) el.customBgOverlay.style.backgroundColor = `rgba(0, 0, 0, ${state.bgSettings.overlayOpacity / 100})`;
+        const cfg = getMonthBgConfig(getCurrentBgMonthKey());
+        cfg.overlayOpacity = parseInt(e.target.value, 10);
+        if (el.bgOverlayValue) el.bgOverlayValue.textContent = `${cfg.overlayOpacity}%`;
+        if (el.customBgOverlay) el.customBgOverlay.style.backgroundColor = `rgba(0, 0, 0, ${cfg.overlayOpacity / 100})`;
         saveBgSettings();
       });
     }
     if (el.bgBlurRange) {
       el.bgBlurRange.addEventListener('input', (e) => {
-        state.bgSettings.blur = parseInt(e.target.value, 10);
-        if (el.bgBlurValue) el.bgBlurValue.textContent = `${state.bgSettings.blur} px`;
-        if (el.customBgLayer) el.customBgLayer.style.filter = `blur(${state.bgSettings.blur}px)`;
+        const cfg = getMonthBgConfig(getCurrentBgMonthKey());
+        cfg.blur = parseInt(e.target.value, 10);
+        if (el.bgBlurValue) el.bgBlurValue.textContent = `${cfg.blur} px`;
+        if (el.customBgLayer) el.customBgLayer.style.filter = `blur(${cfg.blur}px)`;
         saveBgSettings();
       });
     }
     if (el.bgCardOpacityRange) {
       el.bgCardOpacityRange.addEventListener('input', (e) => {
-        state.bgSettings.cardOpacity = parseInt(e.target.value, 10);
-        if (el.bgCardOpacityValue) el.bgCardOpacityValue.textContent = `${state.bgSettings.cardOpacity}%`;
-        const alpha = Math.max(0.3, Math.min(1, state.bgSettings.cardOpacity / 100));
+        const cfg = getMonthBgConfig(getCurrentBgMonthKey());
+        cfg.cardOpacity = parseInt(e.target.value, 10);
+        if (el.bgCardOpacityValue) el.bgCardOpacityValue.textContent = `${cfg.cardOpacity}%`;
+        const alpha = Math.max(0.3, Math.min(1, cfg.cardOpacity / 100));
         const hoverAlpha = Math.min(1, alpha + 0.1);
         document.documentElement.style.setProperty('--bg-card-alpha', alpha.toFixed(2));
         document.documentElement.style.setProperty('--bg-card-hover-alpha', hoverAlpha.toFixed(2));

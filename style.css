@@ -792,6 +792,23 @@ body.theme-light .form-textarea {
   padding: 14px;
 }
 
+.add-task-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.form-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
 body.theme-light .add-task-card {
   background-color: #ffffff;
 }
@@ -1006,7 +1023,7 @@ body.theme-light .day-progress-bar-bg {
 .task-list {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   flex: 1;
   min-height: 0;
   max-height: calc(88vh - 110px);
@@ -1020,11 +1037,12 @@ body.theme-light .day-progress-bar-bg {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  padding: 6px 12px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 42px;
+  min-height: 44px;
+  flex-shrink: 0;
   transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
   user-select: none;
 }
@@ -1085,11 +1103,21 @@ body.theme-light .day-progress-bar-bg {
 }
 
 .move-btn {
-  opacity: 0.6;
+  opacity: 0;
+  width: 0;
+  overflow: hidden;
+  padding: 0 !important;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.task-item:hover .move-btn {
+  opacity: 0.65;
+  width: auto;
   padding: 3px !important;
+  pointer-events: auto;
 }
 .move-btn:hover {
-  opacity: 1;
+  opacity: 1 !important;
   color: var(--accent-primary);
 }
 
@@ -1118,19 +1146,19 @@ body.theme-light .day-progress-bar-bg {
 .task-title-wrap {
   display: flex;
   flex-direction: column;
-  min-width: 180px;
+  min-width: 140px;
   max-width: 420px;
   flex: 1;
 }
 
 .task-title {
-  font-size: 0.88rem;
+  font-size: 0.86rem;
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.3;
+  line-height: 1.35;
 }
 
 .task-item.is-completed .task-title {
@@ -1139,7 +1167,7 @@ body.theme-light .day-progress-bar-bg {
 }
 
 .task-desc {
-  font-size: 0.74rem;
+  font-size: 0.73rem;
   color: var(--text-secondary);
   margin-top: 1px;
   white-space: nowrap;
@@ -1151,7 +1179,7 @@ body.theme-light .day-progress-bar-bg {
   display: flex;
   align-items: center;
   gap: 5px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   flex-shrink: 0;
 }
 
@@ -2884,5 +2912,36 @@ body.theme-light .btn-sheet-link:hover {
   font-weight: 600;
   margin-left: auto;
   flex-shrink: 0;
+}
+
+.bg-month-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.bg-month-label {
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.bg-month-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bg-modal-month-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+  min-width: 120px;
+  text-align: center;
 }
 
