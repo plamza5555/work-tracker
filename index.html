@@ -10,6 +10,10 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="theme-dark">
+  <!-- Custom Background Layers -->
+  <div id="customBgLayer" class="custom-bg-layer" style="display: none;"></div>
+  <div id="customBgOverlay" class="custom-bg-overlay" style="display: none;"></div>
+
   <!-- Top App Navigation -->
   <header class="app-header">
     <div class="header-left">
@@ -60,6 +64,10 @@
 
       <button id="btnBackup" class="btn btn-icon" title="สำรอง / กู้คืนข้อมูล (Export/Import)">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+      </button>
+
+      <button id="btnBgSettings" class="btn btn-icon" title="ตั้งค่าภาพพื้นหลัง (Wallpaper)">
+        <span>🖼️</span>
       </button>
 
       <button id="btnThemeToggle" class="btn btn-icon" title="สลับโหมด มืด/สว่าง">
@@ -372,6 +380,60 @@
             <p>นำเข้าข้อมูลจากไฟล์ .json ที่เคยบันทึกไว้</p>
             <input type="file" id="importFileInput" accept=".json" style="display: none;">
             <button id="btnImportJSON" class="btn btn-outline btn-block">⬆️ เลือกไฟล์เพื่อกู้คืน</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4b. Background Settings Modal -->
+  <div id="bgSettingsModal" class="modal-backdrop">
+    <div class="modal-box modal-md">
+      <div class="modal-header">
+        <h3>🖼️ ตั้งค่าภาพพื้นหลัง (Wallpaper)</h3>
+        <button class="modal-close-btn" id="btnCloseBgModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="bgPreviewBox" class="bg-preview-box">
+          <div class="bg-preview-empty">
+            <span style="font-size: 2rem;">🌄</span>
+            <span>ยังไม่ได้ตั้งภาพพื้นหลัง (ใช้สีธีมเริ่มต้น)</span>
+          </div>
+        </div>
+
+        <input type="file" id="bgImageInput" accept="image/*" style="display: none;">
+        <div class="bg-action-row">
+          <button type="button" id="btnUploadBgImage" class="btn btn-primary" style="flex: 1;">
+            📷 อัปโหลดรูปภาพพื้นหลัง
+          </button>
+          <button type="button" id="btnResetBgImage" class="btn btn-outline" style="display: none; color: var(--danger-color); border-color: rgba(248, 113, 104, 0.4);">
+            🗑️ ลบภาพพื้นหลัง
+          </button>
+        </div>
+
+        <div id="bgSlidersSection" class="bg-sliders-section" style="display: none;">
+          <div class="bg-slider-row">
+            <div class="bg-slider-header">
+              <label for="bgOverlayRange">ความมืดของฟิลเตอร์ทับ (ช่วยให้ตัวหนังสืออ่านง่าย)</label>
+              <span id="bgOverlayValue" class="bg-slider-val">40%</span>
+            </div>
+            <input type="range" id="bgOverlayRange" min="0" max="85" value="40" class="bg-range-input">
+          </div>
+
+          <div class="bg-slider-row">
+            <div class="bg-slider-header">
+              <label for="bgBlurRange">ความเบลอของภาพพื้นหลัง (Blur)</label>
+              <span id="bgBlurValue" class="bg-slider-val">0 px</span>
+            </div>
+            <input type="range" id="bgBlurRange" min="0" max="20" value="0" class="bg-range-input">
+          </div>
+
+          <div class="bg-slider-row">
+            <div class="bg-slider-header">
+              <label for="bgCardOpacityRange">ความทึบของช่องปฏิทิน (Glass Effect)</label>
+              <span id="bgCardOpacityValue" class="bg-slider-val">78%</span>
+            </div>
+            <input type="range" id="bgCardOpacityRange" min="30" max="100" value="78" class="bg-range-input">
           </div>
         </div>
       </div>

@@ -84,7 +84,13 @@
     undoStack: [],
     newTaskAttachments: [],
     editingTaskAttachments: [],
-    googleAccessToken: getValidGoogleToken()
+    googleAccessToken: getValidGoogleToken(),
+    bgSettings: {
+      hasImage: false,
+      overlayOpacity: 40,
+      blur: 0,
+      cardOpacity: 78
+    }
   };
 
   function getValidGoogleToken() {
@@ -126,6 +132,11 @@
 
       const savedTheme = localStorage.getItem('work_tracker_theme');
       state.theme = savedTheme || 'dark';
+
+      const savedBg = localStorage.getItem('work_tracker_bg_settings');
+      if (savedBg) {
+        state.bgSettings = Object.assign({ hasImage: false, overlayOpacity: 40, blur: 0, cardOpacity: 78 }, JSON.parse(savedBg));
+      }
     } catch (e) {
       console.warn('Could not load storage, using default values', e);
       state.labels = DEFAULT_LABELS;
@@ -356,6 +367,24 @@
     themeIcon: document.getElementById('themeIcon'),
     toastContainer: document.getElementById('toastContainer'),
 
+    // Custom Background Settings Elements
+    customBgLayer: document.getElementById('customBgLayer'),
+    customBgOverlay: document.getElementById('customBgOverlay'),
+    btnBgSettings: document.getElementById('btnBgSettings'),
+    bgSettingsModal: document.getElementById('bgSettingsModal'),
+    btnCloseBgModal: document.getElementById('btnCloseBgModal'),
+    bgPreviewBox: document.getElementById('bgPreviewBox'),
+    bgImageInput: document.getElementById('bgImageInput'),
+    btnUploadBgImage: document.getElementById('btnUploadBgImage'),
+    btnResetBgImage: document.getElementById('btnResetBgImage'),
+    bgSlidersSection: document.getElementById('bgSlidersSection'),
+    bgOverlayRange: document.getElementById('bgOverlayRange'),
+    bgOverlayValue: document.getElementById('bgOverlayValue'),
+    bgBlurRange: document.getElementById('bgBlurRange'),
+    bgBlurValue: document.getElementById('bgBlurValue'),
+    bgCardOpacityRange: document.getElementById('bgCardOpacityRange'),
+    bgCardOpacityValue: document.getElementById('bgCardOpacityValue'),
+
     // Drag & Drop Task Across Days Modal
     dragDropActionModal: document.getElementById('dragDropActionModal'),
     btnCloseDragDropModal: document.getElementById('btnCloseDragDropModal'),
@@ -486,6 +515,161 @@
     saveSettings();
     applyTheme();
     showToast(`เปลี่ยนเป็นโหมด ${state.theme === 'dark' ? 'มืด (Dark)' : 'สว่าง (Light)'}`);
+  }
+
+  // --- Custom Background Wallpaper Management ---
+  const BG_IMAGE_IDB_KEY = '__custom_bg_image__';
+
+  function saveBgSettings() {
+    try {
+      localStorage.setItem('work_tracker_bg_settings', JSON.stringify(state.bgSettings));
+    } catch (e) {
+      console.warn('Could not save bg settings:', e);
+    }
+  }
+
+  function applyCustomBackgroundStyles(dataUrl) {
+    const cfg = state.bgSettings || { hasImage: false, overlayOpacity: 40, blur: 0, cardOpacity: 78 };
+
+    if (dataUrl && cfg.hasImage) {
+      document.body.classList.add('has-custom-bg');
+      if (el.customBgLayer) {
+        el.customBgLayer.style.backgroundImage = `url("${dataUrl}")`;
+        el.customBgLayer.style.filter = `blur(${cfg.blur}px)`;
+        el.customBgLayer.style.display = 'block';
+      }
+      if (el.customBgOverlay) {
+        el.customBgOverlay.style.backgroundColor = `rgba(0, 0, 0, ${cfg.overlayOpacity / 100})`;
+        el.customBgOverlay.style.display = 'block';
+      }
+      const alpha = Math.max(0.3, Math.min(1, cfg.cardOpacity / 100));
+      const hoverAlpha = Math.min(1, alpha + 0.1);
+      document.documentElement.style.setProperty('--bg-card-alpha', alpha.toFixed(2));
+      document.documentElement.style.setProperty('--bg-card-hover-alpha', hoverAlpha.toFixed(2));
+
+      if (el.bgPreviewBox) {
+        el.bgPreviewBox.style.backgroundImage = `url("${dataUrl}")`;
+        el.bgPreviewBox.classList.add('has-image');
+        el.bgPreviewBox.innerHTML = '';
+      }
+      if (el.btnResetBgImage) el.btnResetBgImage.style.display = 'inline-flex';
+      if (el.bgSlidersSection) el.bgSlidersSection.style.display = 'flex';
+    } else {
+      document.body.classList.remove('has-custom-bg');
+      if (el.customBgLayer) {
+        el.customBgLayer.style.display = 'none';
+        el.customBgLayer.style.backgroundImage = '';
+      }
+      if (el.customBgOverlay) {
+        el.customBgOverlay.style.display = 'none';
+      }
+      if (el.bgPreviewBox) {
+        el.bgPreviewBox.style.backgroundImage = '';
+        el.bgPreviewBox.classList.remove('has-image');
+        el.bgPreviewBox.innerHTML = `
+          <div class="bg-preview-empty">
+            <span style="font-size: 2rem;">🌄</span>
+            <span>ยังไม่ได้ตั้งภาพพื้นหลัง (ใช้สีธีมเริ่มต้น)</span>
+          </div>
+        `;
+      }
+      if (el.btnResetBgImage) el.btnResetBgImage.style.display = 'none';
+      if (el.bgSlidersSection) el.bgSlidersSection.style.display = 'none';
+    }
+
+    // Sync slider UI values
+    if (el.bgOverlayRange) el.bgOverlayRange.value = cfg.overlayOpacity;
+    if (el.bgOverlayValue) el.bgOverlayValue.textContent = `${cfg.overlayOpacity}%`;
+    if (el.bgBlurRange) el.bgBlurRange.value = cfg.blur;
+    if (el.bgBlurValue) el.bgBlurValue.textContent = `${cfg.blur} px`;
+    if (el.bgCardOpacityRange) el.bgCardOpacityRange.value = cfg.cardOpacity;
+    if (el.bgCardOpacityValue) el.bgCardOpacityValue.textContent = `${cfg.cardOpacity}%`;
+  }
+
+  async function loadAndApplyCustomBackground() {
+    if (!state.bgSettings || !state.bgSettings.hasImage) {
+      applyCustomBackgroundStyles(null);
+      return;
+    }
+    const dataUrl = await getFileFromIndexedDB(BG_IMAGE_IDB_KEY);
+    if (dataUrl) {
+      applyCustomBackgroundStyles(dataUrl);
+    } else {
+      state.bgSettings.hasImage = false;
+      saveBgSettings();
+      applyCustomBackgroundStyles(null);
+    }
+  }
+
+  function resizeBgImageIfNeeded(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('ไม่สามารถอ่านไฟล์รูปภาพได้'));
+      reader.onload = (e) => {
+        const rawDataUrl = e.target.result;
+        const img = new Image();
+        img.onerror = () => reject(new Error('ไฟล์ที่เลือกไม่ใช่รูปภาพที่รองรับ'));
+        img.onload = () => {
+          const MAX_DIM = 1920;
+          let { width, height } = img;
+          if (width <= MAX_DIM && height <= MAX_DIM && file.size <= 1500000) {
+            resolve(rawDataUrl);
+            return;
+          }
+          const ratio = Math.min(MAX_DIM / width, MAX_DIM / height, 1);
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(width * ratio);
+          canvas.height = Math.round(height * ratio);
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', 0.86));
+        };
+        img.src = rawDataUrl;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleBgImageUpload(file) {
+    if (!file || !file.type.startsWith('image/')) {
+      showToast('⚠️ กรุณาเลือกไฟล์รูปภาพ (.jpg, .png, .webp)', 'warning');
+      return;
+    }
+    try {
+      showToast('🖼️ กำลังประมวลผลและบันทึกภาพพื้นหลัง...');
+      const dataUrl = await resizeBgImageIfNeeded(file);
+      await saveFileToIndexedDB(BG_IMAGE_IDB_KEY, dataUrl);
+      state.bgSettings.hasImage = true;
+      saveBgSettings();
+      applyCustomBackgroundStyles(dataUrl);
+      showToast('✨ เปลี่ยนภาพพื้นหลังเรียบร้อยแล้ว!');
+    } catch (err) {
+      showToast('⚠️ ' + err.message, 'error');
+    }
+  }
+
+  async function resetCustomBackground() {
+    state.bgSettings.hasImage = false;
+    saveBgSettings();
+    try {
+      const db = await openFilesDB();
+      if (db) {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        tx.objectStore(IDB_STORE).delete(BG_IMAGE_IDB_KEY);
+      }
+    } catch (e) {
+      console.warn('Error removing bg from IDB:', e);
+    }
+    applyCustomBackgroundStyles(null);
+    showToast('🗑️ ลบภาพพื้นหลังและกลับสู่สีธีมเริ่มต้นแล้ว');
+  }
+
+  function openBgSettingsModal() {
+    if (el.bgSettingsModal) el.bgSettingsModal.classList.add('active');
+  }
+
+  function closeBgSettingsModal() {
+    if (el.bgSettingsModal) el.bgSettingsModal.classList.remove('active');
   }
 
   // ============================================================
@@ -3482,6 +3666,48 @@
     // Theme toggle
     el.btnThemeToggle.addEventListener('click', toggleTheme);
 
+    // Custom Background Settings
+    if (el.btnBgSettings) el.btnBgSettings.addEventListener('click', openBgSettingsModal);
+    if (el.btnCloseBgModal) el.btnCloseBgModal.addEventListener('click', closeBgSettingsModal);
+    if (el.btnUploadBgImage && el.bgImageInput) {
+      el.btnUploadBgImage.addEventListener('click', () => el.bgImageInput.click());
+      el.bgImageInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) handleBgImageUpload(file);
+        e.target.value = '';
+      });
+    }
+    if (el.btnResetBgImage) {
+      el.btnResetBgImage.addEventListener('click', resetCustomBackground);
+    }
+    if (el.bgOverlayRange) {
+      el.bgOverlayRange.addEventListener('input', (e) => {
+        state.bgSettings.overlayOpacity = parseInt(e.target.value, 10);
+        if (el.bgOverlayValue) el.bgOverlayValue.textContent = `${state.bgSettings.overlayOpacity}%`;
+        if (el.customBgOverlay) el.customBgOverlay.style.backgroundColor = `rgba(0, 0, 0, ${state.bgSettings.overlayOpacity / 100})`;
+        saveBgSettings();
+      });
+    }
+    if (el.bgBlurRange) {
+      el.bgBlurRange.addEventListener('input', (e) => {
+        state.bgSettings.blur = parseInt(e.target.value, 10);
+        if (el.bgBlurValue) el.bgBlurValue.textContent = `${state.bgSettings.blur} px`;
+        if (el.customBgLayer) el.customBgLayer.style.filter = `blur(${state.bgSettings.blur}px)`;
+        saveBgSettings();
+      });
+    }
+    if (el.bgCardOpacityRange) {
+      el.bgCardOpacityRange.addEventListener('input', (e) => {
+        state.bgSettings.cardOpacity = parseInt(e.target.value, 10);
+        if (el.bgCardOpacityValue) el.bgCardOpacityValue.textContent = `${state.bgSettings.cardOpacity}%`;
+        const alpha = Math.max(0.3, Math.min(1, state.bgSettings.cardOpacity / 100));
+        const hoverAlpha = Math.min(1, alpha + 0.1);
+        document.documentElement.style.setProperty('--bg-card-alpha', alpha.toFixed(2));
+        document.documentElement.style.setProperty('--bg-card-hover-alpha', hoverAlpha.toFixed(2));
+        saveBgSettings();
+      });
+    }
+
     // Drag & Drop across days modal
     el.btnCloseDragDropModal.addEventListener('click', closeDragDropModal);
     el.btnCancelDragDrop.addEventListener('click', closeDragDropModal);
@@ -3643,6 +3869,7 @@
       if (e.target === el.dragDropActionModal) closeDragDropModal();
       if (e.target === el.cloudSyncModal) closeCloudSyncModal();
       if (e.target === el.syncConflictModal) closeSyncConflictModal();
+      if (e.target === el.bgSettingsModal) closeBgSettingsModal();
     });
 
     // Save pending debounce sync before leaving/closing tab
@@ -3683,6 +3910,7 @@
         else if (el.dragDropActionModal && el.dragDropActionModal.classList.contains('active')) closeDragDropModal();
         else if (el.cloudSyncModal && el.cloudSyncModal.classList.contains('active')) closeCloudSyncModal();
         else if (el.syncConflictModal && el.syncConflictModal.classList.contains('active')) closeSyncConflictModal();
+        else if (el.bgSettingsModal && el.bgSettingsModal.classList.contains('active')) closeBgSettingsModal();
       }
     });
   }
@@ -3691,6 +3919,7 @@
   function init() {
     loadFromStorage();
     applyTheme();
+    loadAndApplyCustomBackground();
     initEventListeners();
     initFirebase();
     updateDriveStatusUI();
