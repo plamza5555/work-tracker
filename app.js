@@ -477,6 +477,9 @@
     btnGoogleSignIn: document.getElementById('btnGoogleSignIn'),
     btnSubmitAuth: document.getElementById('btnSubmitAuth'),
     authErrorMsg: document.getElementById('authErrorMsg'),
+    firebaseProtectedBox: document.getElementById('firebaseProtectedBox'),
+    firebaseConfigInputGroup: document.getElementById('firebaseConfigInputGroup'),
+    btnUnlockFirebaseInput: document.getElementById('btnUnlockFirebaseInput'),
     firebaseConfigTextarea: document.getElementById('firebaseConfigTextarea'),
     btnSaveFirebaseConfig: document.getElementById('btnSaveFirebaseConfig'),
     btnResetFirebaseConfig: document.getElementById('btnResetFirebaseConfig'),
@@ -1317,11 +1320,23 @@
     el.lastSyncTimeTxt.textContent = `ซิงก์ล่าสุด: ${timeStr} น.`;
   }
 
-  function updateCloudUI() {
+  function updateFirebaseConfigProtectionUI() {
     const config = getStoredFirebaseConfig();
-    if (el.firebaseConfigTextarea && config) {
-      el.firebaseConfigTextarea.value = JSON.stringify(config, null, 2);
+    const hasConfig = !!(config && config.apiKey);
+    if (el.firebaseProtectedBox && el.firebaseConfigInputGroup) {
+      if (hasConfig) {
+        el.firebaseProtectedBox.style.display = 'flex';
+        el.firebaseConfigInputGroup.style.display = 'none';
+        if (el.firebaseConfigTextarea) el.firebaseConfigTextarea.value = '';
+      } else {
+        el.firebaseProtectedBox.style.display = 'none';
+        el.firebaseConfigInputGroup.style.display = 'block';
+      }
     }
+  }
+
+  function updateCloudUI() {
+    updateFirebaseConfigProtectionUI();
     setCloudStatus(state.cloudUser ? 'online' : 'offline');
   }
 
@@ -1559,6 +1574,7 @@
       state.firebaseApp = null;
       state.firebaseDb = null;
       state.firebaseAuth = null;
+      updateFirebaseConfigProtectionUI();
       setCloudStatus('offline');
       showToast('ล้างการตั้งค่า Firebase เรียบร้อย');
     }
@@ -3957,10 +3973,14 @@
         if (el.panelConfig) el.panelConfig.style.display = 'block';
         if (el.panelAccount) el.panelAccount.style.display = 'none';
         if (el.panelHistory) el.panelHistory.style.display = 'none';
-        const cfg = getStoredFirebaseConfig();
-        if (cfg && el.firebaseConfigTextarea) {
-          el.firebaseConfigTextarea.value = JSON.stringify(cfg, null, 2);
-        }
+        updateFirebaseConfigProtectionUI();
+      });
+    }
+    if (el.btnUnlockFirebaseInput) {
+      el.btnUnlockFirebaseInput.addEventListener('click', () => {
+        if (el.firebaseProtectedBox) el.firebaseProtectedBox.style.display = 'none';
+        if (el.firebaseConfigInputGroup) el.firebaseConfigInputGroup.style.display = 'block';
+        if (el.firebaseConfigTextarea) el.firebaseConfigTextarea.value = '';
       });
     }
     if (el.tabBtnHistory) {

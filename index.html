@@ -652,9 +652,19 @@
               วางโค้ด <code style="color: #60a5fa; background: rgba(96, 165, 250, 0.1); padding: 2px 6px; border-radius: 4px;">firebaseConfig</code> ที่ได้จาก Google Firebase Console เพื่อเปิดระบบคลาวด์ของคุณเอง ปลอดภัย 100%
             </p>
 
-            <div class="form-group" style="margin-bottom: 10px;">
-              <label class="form-label">Firebase Configuration (JSON / Object):</label>
-              <textarea id="firebaseConfigTextarea" class="form-textarea" rows="6" placeholder='{
+            <div id="firebaseProtectedBox" class="firebase-protected-box" style="display: none;" oncopy="return false;" oncut="return false;" oncontextmenu="return false;">
+              <div class="protected-icon">🔒</div>
+              <div class="protected-info">
+                <div class="protected-title">ตั้งค่า Firebase เชื่อมต่อไว้เรียบร้อยแล้ว</div>
+                <div class="protected-desc">โค้ดการตั้งค่าถูกซ่อนและป้องกันการคัดลอกเพื่อความปลอดภัย</div>
+              </div>
+              <button type="button" id="btnUnlockFirebaseInput" class="btn btn-sm btn-outline">🔄 เปลี่ยนค่าใหม่</button>
+            </div>
+
+            <div id="firebaseConfigInputGroup">
+              <div class="form-group" style="margin-bottom: 10px;">
+                <label class="form-label">Firebase Configuration (JSON / Object):</label>
+                <textarea id="firebaseConfigTextarea" class="form-textarea" rows="6" placeholder='{
   "apiKey": "YOUR_API_KEY",
   "authDomain": "your-app.firebaseapp.com",
   "databaseURL": "https://your-app-default-rtdb.firebaseio.com",
@@ -663,15 +673,16 @@
   "messagingSenderId": "...",
   "appId": "..."
 }' style="font-family: monospace; font-size: 0.8rem;"></textarea>
-            </div>
+              </div>
 
-            <div style="display: flex; gap: 10px; margin-bottom: 14px;">
-              <button type="button" id="btnSaveFirebaseConfig" class="btn btn-primary" style="flex: 1;">
-                💾 บันทึกการตั้งค่า Firebase
-              </button>
-              <button type="button" id="btnResetFirebaseConfig" class="btn btn-secondary">
-                ล้างค่า
-              </button>
+              <div style="display: flex; gap: 10px; margin-bottom: 14px;">
+                <button type="button" id="btnSaveFirebaseConfig" class="btn btn-primary" style="flex: 1;">
+                  💾 บันทึกการตั้งค่า Firebase
+                </button>
+                <button type="button" id="btnResetFirebaseConfig" class="btn btn-secondary">
+                  ล้างค่า
+                </button>
+              </div>
             </div>
 
             <!-- Step by Step Setup Guide Accordion -->
