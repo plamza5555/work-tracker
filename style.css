@@ -778,6 +778,49 @@ body.theme-light .form-textarea {
   min-height: 0;
 }
 
+.day-modal-grid.sidebar-collapsed {
+  grid-template-columns: 1fr;
+}
+
+.day-modal-grid.sidebar-collapsed .day-modal-sidebar {
+  display: none;
+}
+
+.btn-sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.74rem;
+  font-weight: 500;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-sidebar-toggle:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+
+.btn-sidebar-toggle.expand {
+  background-color: rgba(87, 157, 255, 0.14);
+  border-color: rgba(87, 157, 255, 0.45);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.btn-sidebar-toggle.expand:hover {
+  background-color: var(--accent-primary);
+  color: #ffffff;
+}
+
 .day-modal-sidebar {
   display: flex;
   flex-direction: column;

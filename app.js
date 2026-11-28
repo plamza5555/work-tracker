@@ -326,6 +326,9 @@
 
     // Day Modal
     dayModal: document.getElementById('dayModal'),
+    dayModalGrid: document.getElementById('dayModalGrid'),
+    btnCollapseSidebar: document.getElementById('btnCollapseSidebar'),
+    btnExpandSidebar: document.getElementById('btnExpandSidebar'),
     btnCloseDayModal: document.getElementById('btnCloseDayModal'),
     modalDateTitle: document.getElementById('modalDateTitle'),
     modalDateSubtitle: document.getElementById('modalDateSubtitle'),
@@ -1988,7 +1991,7 @@
       title: task.title,
       desc: task.desc || '',
       sheetUrl: task.sheetUrl || '',
-      done: false,
+      done: !!task.done,
       tags: [...(task.tags || [])],
       attachments: task.attachments ? JSON.parse(JSON.stringify(task.attachments)) : []
     };
@@ -3795,6 +3798,27 @@
     // Day modal controls
     el.btnCloseDayModal.addEventListener('click', closeDayModal);
     el.addTaskForm.addEventListener('submit', handleAddNewTask);
+
+    // Day modal sidebar collapse/expand
+    const applySidebarCollapseState = (collapsed) => {
+      if (el.dayModalGrid) el.dayModalGrid.classList.toggle('sidebar-collapsed', collapsed);
+      if (el.btnExpandSidebar) el.btnExpandSidebar.style.display = collapsed ? 'inline-flex' : 'none';
+      try {
+        localStorage.setItem('work_tracker_sidebar_collapsed', JSON.stringify(collapsed));
+      } catch (e) {}
+    };
+    try {
+      const savedCollapsed = localStorage.getItem('work_tracker_sidebar_collapsed');
+      if (savedCollapsed && JSON.parse(savedCollapsed) === true) {
+        applySidebarCollapseState(true);
+      }
+    } catch (e) {}
+    if (el.btnCollapseSidebar) {
+      el.btnCollapseSidebar.addEventListener('click', () => applySidebarCollapseState(true));
+    }
+    if (el.btnExpandSidebar) {
+      el.btnExpandSidebar.addEventListener('click', () => applySidebarCollapseState(false));
+    }
 
     if (el.btnCopyDayToTomorrow) {
       el.btnCopyDayToTomorrow.addEventListener('click', () => {

@@ -21,7 +21,7 @@
         <span class="logo-icon">📅</span>
         <div class="logo-text">
           <h1>Work Tracker</h1>
-          <span class="subtitle">บันทึกงานรายวัน & จัดการ Tags</span>
+          <span class="subtitle">บันทึกงานรายวัน & จัดการ Tags สไตล์ Trello</span>
         </div>
       </div>
     </div>
@@ -151,15 +151,20 @@
         </div>
       </div>
 
-      <div class="modal-body day-modal-grid">
+      <div id="dayModalGrid" class="modal-body day-modal-grid">
         <!-- Left Sidebar: Compact Add Task Form & Day Stats -->
         <div class="day-modal-sidebar">
           <div class="card add-task-card">
             <div class="add-task-header-row">
               <h3 class="card-title" style="margin-bottom: 0;">+ เพิ่มงานสำหรับวันนี้</h3>
-              <button type="button" id="btnQuickDriveLogin" class="drive-status-btn" title="คลิกเพื่อเข้าสู่ระบบ Google เพื่อเปิดใช้ระบบอัปโหลดไฟล์ขึ้น Google Drive อัตโนมัติ">
-                <span>☁️ ล็อกอิน Drive</span>
-              </button>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <button type="button" id="btnQuickDriveLogin" class="drive-status-btn" title="คลิกเพื่อเข้าสู่ระบบ Google เพื่อเปิดใช้ระบบอัปโหลดไฟล์ขึ้น Google Drive อัตโนมัติ">
+                  <span>☁️ ล็อกอิน Drive</span>
+                </button>
+                <button type="button" id="btnCollapseSidebar" class="btn-sidebar-toggle" title="พับเก็บแถบเพิ่มงาน (ขยายพื้นที่รายการงาน)">
+                  ◀ พับ
+                </button>
+              </div>
             </div>
             <form id="addTaskForm" class="add-task-form">
               <div class="form-group">
@@ -220,7 +225,12 @@
         <div class="day-modal-main">
           <div class="tasks-section">
             <div class="tasks-header">
-              <h3>รายการงานที่บันทึก (<span id="dayTasksCount">0</span> งาน)</h3>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <button type="button" id="btnExpandSidebar" class="btn-sidebar-toggle expand" style="display: none;" title="แสดงแถบเพิ่มงานและตัวกรอง">
+                  ▶ ➕ เพิ่มงาน
+                </button>
+                <h3>รายการงานที่บันทึก (<span id="dayTasksCount">0</span> งาน)</h3>
+              </div>
               
               <!-- Day Progress Bar moved here -->
               <div class="day-progress-header-box">
